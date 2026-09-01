@@ -301,7 +301,7 @@ Every status change writes a `log` row, so status history is free.
 
 Seven slices. Each is independently useful and independently shippable.
 
-### PR1 - Core: schema, storage, plan/slice CRUD, TablePlus views
+### PR1 - Core: schema, storage, plan/slice CRUD, TablePlus views  ✅ DONE
 
 `crates/ai-planner-core` + `crates/ai-planner` (bin `aip`).
 
@@ -317,7 +317,7 @@ Seven slices. Each is independently useful and independently shippable.
 done, `aip show` prints a plan that looks like the file, `aip db open` shows it in
 TablePlus.
 
-### PR2 - Context: resolution, claims, status, affinity
+### PR2 - Context: resolution, claims, status, affinity  ✅ DONE
 
 - The D7 cascade with `--why`, `plan_affinity` (D9), slice claims (D6).
 - `aip current | status | resume`, `aip slice claim|release`.
@@ -328,7 +328,7 @@ TablePlus.
 names the plan and `--why` says which rule fired; two shells racing `slice claim PR2`
 produce exactly one winner.
 
-### PR3 - Import and export: the real files, losslessly
+### PR3 - Import and export: the real files, losslessly  ✅ DONE
 
 - Markdown importer for the observed dialects (`## N.` sections, `### PR1|S1|M4|Phase 0`
   slices, `### D1|AD-1` decisions, `## Progress log` bullets, `✅|⛔` status markers).
@@ -342,28 +342,38 @@ produce exactly one winner.
 plan and handoff, reports the 3 identical Canvas Editor copies as one plan and the
 ACME-1234 pair as a conflict; `aip ls` lists 6 distinct plans.
 
-### PR4 - Search
+### PR4 - Search  ✅ DONE
 
 - FTS5 over plan/section/slice/log with BM25 + recency + affinity ranking (D8).
 - `aip find "<query>"`, `--repo`/`--all`, `--status`, JSON output.
 - Optional `model-embeddings` feature: `fastembed` BGE + `sqlite-vec` hybrid rank.
+  **Not built** - the lexical mode answers every query tried against the real plans, so
+  the model stays unbuilt until a query needs it (D8 keeps it opt-in either way).
 
 **Demo:** `aip find "two-pane date panel"` returns ACME-1234 first with the matching
-line; `aip find "canvas editor pdf"` returns the Canvas Editor plan's S5.
+line; `aip find "herd symlink"` returns the gotcha as its top hit. Both verified
+against the imported plans.
 
-### PR5 - MCP server and skill
+### PR5 - MCP server and skill  - NOT BUILT
+
+Still to build. The skill half shipped with PR6, and every command takes `--json`, so a
+harness can already drive the whole tool through the CLI - which is why this slice went
+last rather than first.
 
 - `aip serve` (`rmcp`, stdio): `resolve_plan`, `search_plans`, `get_plan`, `get_slice`,
   `list_slices`, `claim_slice`, `set_slice_status`, `append_log`, `add_decision`,
   `add_gotcha`, `open_question`, `answer_question`, `update_section`, `write_handoff`,
   `get_handoff`, `create_plan`.
-- Skill `ai-planner` into `.claude/skills`, `.agents/skills`, and user scope.
 - Registration for Claude Code, Codex (`~/.codex/config.toml`), Pi (`.pi/mcp.json`).
+
+The one thing MCP buys over the CLI is that tool calls are structured and cannot be
+mistyped; against that, the CLI needs no server process per worktree. Worth building,
+not urgent.
 
 **Demo:** in Claude Code, "what am I building?" answers from the DB with no file read;
 marking a slice done from the agent is visible in TablePlus immediately.
 
-### PR6 - Handoff and the session-start hook
+### PR6 - Handoff and the session-start hook  ✅ DONE
 
 - `aip handoff write|show`, `aip resume`, `aip status --hook` emitting harness context
   JSON (D10).
@@ -374,13 +384,15 @@ marking a slice done from the agent is visible in TablePlus immediately.
 **Demo:** `/handoff` in worktree 3 records to the DB; a fresh session in that worktree
 opens already knowing the plan, the slice and the next item, with no prompt.
 
-### PR7 - Install, docs, dogfood
+### PR7 - Install, docs, dogfood  - PARTLY DONE
 
-- `install.sh` (+ `install-skill.sh`, `install-mcp.sh`) in the file-sql shape, GH Pages.
-- `aip doctor` (DB reachable, migrations current, stale claims, orphaned worktrees,
-  un-imported `*_BUILD_PLAN.md` still on disk).
-- `aip db backup`, README, `AGENTS.md`.
-- Import this file as plan #1 and delete it.
+- `install.sh` (+ `install-skill.sh`, `install-hook.sh`) in the file-sql shape. **Done**;
+  GH Pages not set up, so the `curl | sh` URLs are not live yet.
+- `aip doctor` (DB reachable, migrations current, stale claims, blocked slices with no
+  reason, un-imported `*_BUILD_PLAN.md` still on disk). **Done.**
+- `aip db backup`, README, `AGENTS.md`. **Done.**
+- Import this file as plan #1 and delete it. **Not done** - waiting on the decision in
+  section 6 about deleting source files.
 
 **Demo:** `curl ... | sh` on a clean machine, then `aip doctor` green; `aip show
 ai-planner` renders this document from the database.
