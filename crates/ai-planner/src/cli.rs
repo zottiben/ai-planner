@@ -88,6 +88,12 @@ pub enum Command {
     #[command(subcommand)]
     Gotcha(GotchaCmd),
 
+    /// Bring existing BUILD_PLAN.md / HANDOFF.md files into the database
+    Import(ImportArgs),
+
+    /// Write a plan back out as markdown
+    Export(ExportArgs),
+
     /// Registered repos
     Repos,
 
@@ -416,6 +422,46 @@ pub struct GotchaAddArgs {
     pub body: Option<String>,
     #[arg(long, conflicts_with = "body")]
     pub file: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct ImportArgs {
+    /// Files or directories to import
+    pub paths: Vec<PathBuf>,
+
+    /// Search a directory tree for BUILD_PLAN / HANDOFF markdown; repeatable
+    #[arg(long, value_name = "DIR")]
+    pub scan: Vec<PathBuf>,
+
+    /// Overwrite a plan whose stored copy has drifted from this file
+    #[arg(long)]
+    pub replace: bool,
+
+    /// Parse and report without writing
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Attach every imported handoff to this plan, for the ones nothing identifies
+    #[arg(long = "as", value_name = "PLAN")]
+    pub attach_to: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct ExportArgs {
+    /// Which plan; defaults to the resolved one
+    pub plan: Option<String>,
+
+    /// Write to a file instead of stdout
+    #[arg(long, short = 'o')]
+    pub out: Option<PathBuf>,
+
+    /// The markdown it was imported from, rather than the rendered plan
+    #[arg(long)]
+    pub raw: bool,
+
+    /// Overwrite an existing file
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Subcommand, Debug)]

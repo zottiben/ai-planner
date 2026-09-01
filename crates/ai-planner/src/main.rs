@@ -59,6 +59,8 @@ fn run() -> Result<()> {
         Command::Decision(c) => cmd::note::decision(&mut app, c, plan_ref),
         Command::Question(c) => cmd::note::question(&mut app, c, plan_ref),
         Command::Gotcha(c) => cmd::note::gotcha(&mut app, c, plan_ref),
+        Command::Import(args) => cmd::import::import(&mut app, args),
+        Command::Export(args) => cmd::import::export(&app, args, plan_ref),
         Command::Repos => cmd::plan::repos(&app),
         Command::Db(c) => cmd::db::run(&app, c),
     }

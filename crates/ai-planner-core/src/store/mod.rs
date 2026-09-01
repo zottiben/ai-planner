@@ -9,6 +9,7 @@ mod plans;
 mod slices;
 
 pub use notes::{NewDecision, NewLog};
+pub(crate) use plans::{row_to_plan, PLAN_SELECT};
 pub use plans::{NewPlan, PlanFilter, PlanUpdate, SectionWrite};
 pub use slices::{NewSlice, SliceUpdate};
 
@@ -65,6 +66,10 @@ impl Store {
 
     pub fn db(&self) -> &Db {
         &self.db
+    }
+
+    pub(crate) fn db_mut(&mut self) -> &mut Db {
+        &mut self.db
     }
 
     pub fn path(&self) -> &Path {

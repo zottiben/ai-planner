@@ -479,13 +479,13 @@ fn exact_is_global(needle: &str) -> bool {
     needle.contains('/')
 }
 
-pub(super) const PLAN_SELECT: &str =
+pub(crate) const PLAN_SELECT: &str =
     "SELECT p.id, p.repo_id, r.name, p.slug, p.title, p.status, p.summary,
             p.ticket_key, p.ticket_url, p.base_branch, p.owner, p.source_path,
             p.rev, p.created_at, p.updated_at
      FROM plan p JOIN repo r ON r.id = p.repo_id";
 
-pub(super) fn row_to_plan(row: &Row<'_>) -> rusqlite::Result<Plan> {
+pub(crate) fn row_to_plan(row: &Row<'_>) -> rusqlite::Result<Plan> {
     Ok(Plan {
         id: row.get(0)?,
         repo_id: row.get(1)?,
