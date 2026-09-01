@@ -110,6 +110,30 @@ impl Store {
             .optional()?)
     }
 
+    /// Remember that this (repo, branch, worktree) meant this plan. Called whenever a
+    /// resolution is confirmed - named outright, or acted on by claiming a slice - so
+    /// the next lookup here needs no help (D9).
+    pub fn record_affinity(
+        &mut self,
+        plan_id: i64,
+        repo_id: i64,
+        branch: Option<&str>,
+        worktree: &str,
+    ) -> Result<()> {
+        let branch = branch.unwrap_or("").to_string();
+        let worktree = worktree.to_string();
+        self.db.write(|tx| {
+            tx.execute(
+                "INSERT INTO plan_affinity (plan_id, repo_id, branch, worktree_path, hits, last_at)
+                 VALUES (?1, ?2, ?3, ?4, 1, ?5)
+                 ON CONFLICT(plan_id, repo_id, branch, worktree_path) DO UPDATE SET
+                     hits = plan_affinity.hits + 1, last_at = excluded.last_at",
+                rusqlite::params![plan_id, repo_id, branch, worktree, now()],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn repos(&self) -> Result<Vec<Repo>> {
         let conn = self.db.conn();
         let mut stmt = conn.prepare(

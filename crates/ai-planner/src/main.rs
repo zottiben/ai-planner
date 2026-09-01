@@ -45,6 +45,8 @@ fn run() -> Result<()> {
     match &cli.command {
         Command::Init(_) => unreachable!("handled above"),
         Command::New(args) => cmd::plan::new(&mut app, args),
+        Command::Current(args) => cmd::context::current(&mut app, args, plan_ref),
+        Command::Status(args) => cmd::context::status(&mut app, args, plan_ref),
         Command::Ls(args) => cmd::plan::ls(&app, args),
         Command::Show(args) => cmd::plan::show(&app, args, plan_ref),
         Command::Set(args) => cmd::plan::set(&mut app, args, plan_ref),

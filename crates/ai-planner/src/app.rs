@@ -53,45 +53,28 @@ impl App {
             .ok_or_else(|| anyhow::anyhow!("not inside a git repository"))
     }
 
-    /// Resolve `--plan`, falling back to the resolution cascade when it is absent.
-    /// PR1 implements the explicit half; PR2 adds the branch and affinity rules.
+    /// Which plan this command acts on. Every command shares the one cascade, so
+    /// `aip log "..."` in a worktree lands where `aip status` said it would.
     pub fn plan(&self, explicit: Option<&str>) -> Result<Plan> {
-        let needle = explicit
-            .map(str::to_string)
-            .or_else(|| std::env::var("AI_PLANNER_PLAN").ok())
-            .filter(|s| !s.trim().is_empty());
-
-        if let Some(needle) = needle {
-            return Ok(self.store.find_plan(&needle, self.repo_id())?);
-        }
-
-        if let Some(repo) = &self.repo {
-            let active = self.store.list_plans(&ai_planner_core::PlanFilter {
-                repo_id: Some(repo.id),
-                statuses: ai_planner_core::Status::INCOMPLETE.to_vec(),
-                query: None,
-            })?;
-            if active.len() == 1 {
-                return Ok(active.into_iter().next().unwrap());
+        match self.store.resolve(self.git.as_ref(), explicit)? {
+            Ok(resolution) => Ok(resolution.plan),
+            Err(unresolved) => {
+                let hint = if unresolved.candidates.is_empty() {
+                    " - `aip new \"<title>\"` starts one".to_string()
+                } else {
+                    format!(
+                        " - pass -p with one of: {}",
+                        unresolved
+                            .candidates
+                            .iter()
+                            .map(|p| p.slug.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+                anyhow::bail!("{}{hint}", unresolved.reason)
             }
-            if active.is_empty() {
-                anyhow::bail!(
-                    "no unfinished plan in {} - pass --plan, or `aip new` to start one",
-                    repo.name
-                );
-            }
-            let names = active
-                .iter()
-                .map(|p| p.slug.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            anyhow::bail!(
-                "{} unfinished plans here ({names}) - pass --plan",
-                active.len()
-            );
         }
-
-        anyhow::bail!("pass --plan (not inside a registered repo)")
     }
 
     pub fn db_path(&self) -> PathBuf {

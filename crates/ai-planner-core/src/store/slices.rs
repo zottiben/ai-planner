@@ -140,6 +140,17 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Slices claimed in a given worktree, newest claim first.
+    pub fn slices_claimed_in(&self, worktree: &str) -> Result<Vec<Slice>> {
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(&format!(
+            "{SLICE_SELECT} WHERE worktree_path = ?1 AND claimed_by IS NOT NULL
+             ORDER BY claimed_at DESC, id DESC"
+        ))?;
+        let rows = stmt.query_map([worktree], row_to_slice)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     pub fn set_slice_status(
         &mut self,
         slice: &Slice,

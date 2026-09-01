@@ -8,6 +8,7 @@ pub mod error;
 pub mod git;
 pub mod model;
 pub mod render;
+pub mod resolve;
 pub mod store;
 pub mod util;
 
@@ -19,6 +20,7 @@ pub use model::{
     Renders, Repo, Section, Slice, Status,
 };
 pub use render::render_plan;
+pub use resolve::{Resolution, Resolved, Rule, Unresolved};
 pub use store::{
     default_actor, NewDecision, NewLog, NewPlan, NewSlice, PlanFilter, PlanUpdate, SectionWrite,
     SliceUpdate, Store,

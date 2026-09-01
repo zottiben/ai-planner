@@ -186,6 +186,12 @@ fn claim(app: &mut App, key: &str, plan_ref: Option<&str>) -> Result<()> {
     let claimed = app
         .store
         .claim_slice(&slice, &git.worktree_str(), git.branch.as_deref())?;
+    // Claiming is the strongest possible confirmation of "this worktree means this
+    // plan", so it teaches the association too.
+    if let Some(repo_id) = app.repo_id() {
+        app.store
+            .record_affinity(plan.id, repo_id, git.branch.as_deref(), &git.worktree_str())?;
+    }
 
     if app.json {
         println!("{}", serde_json::to_string_pretty(&claimed)?);

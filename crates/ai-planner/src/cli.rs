@@ -42,6 +42,12 @@ pub enum Command {
     /// Start a new plan in this repo
     New(NewArgs),
 
+    /// Which plan does this worktree belong to?
+    Current(CurrentArgs),
+
+    /// Where you are and what to do next
+    Status(StatusArgs),
+
     /// List plans
     Ls(LsArgs),
 
@@ -126,6 +132,20 @@ pub struct NewArgs {
 
     #[arg(long, default_value = "draft")]
     pub status: String,
+}
+
+#[derive(Args, Debug)]
+pub struct CurrentArgs {
+    /// Say which rule resolved it
+    #[arg(long)]
+    pub why: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct StatusArgs {
+    /// One line, for prompts and scripts
+    #[arg(long)]
+    pub oneline: bool,
 }
 
 #[derive(Args, Debug)]
