@@ -216,17 +216,23 @@ impl Store {
             .find(|s| matches!(s.status, Status::Active | Status::InReview)))
     }
 
-    /// The next thing to pick up: the first slice that is ready or already going, in
-    /// plan order, skipping anything claimed by somebody else.
+    /// The next thing to pick up. What this worktree already holds comes first - you
+    /// resume your own work before starting anything new - then the first slice that
+    /// is ready or going and not held by someone else.
     pub fn next_slice(&self, plan_id: i64, worktree: Option<&str>) -> Result<Option<Slice>> {
         let slices = self.slices(plan_id)?;
+        let mine = slices.iter().find(|s| {
+            !s.status.is_terminal()
+                && s.claimed_by.is_some()
+                && s.worktree_path.as_deref() == worktree
+        });
+        if let Some(s) = mine {
+            return Ok(Some(s.clone()));
+        }
         Ok(slices
             .into_iter()
             .filter(|s| matches!(s.status, Status::Ready | Status::Active))
-            .find(|s| match (&s.claimed_by, &s.worktree_path) {
-                (Some(_), Some(path)) => Some(path.as_str()) == worktree,
-                _ => true,
-            }))
+            .find(|s| s.claimed_by.is_none()))
     }
 
     fn claimed_in(&self, worktree: &str) -> Result<Option<Slice>> {
@@ -508,7 +514,8 @@ mod tests {
         let next = fx.store.next_slice(p.id, Some("/wt/3")).unwrap().unwrap();
         assert_eq!(next.key, "PR3");
 
-        // From the worktree that holds PR2, PR2 is still your next thing.
+        // From the worktree that holds PR2, PR2 is what you resume - even though PR3
+        // is unclaimed and PR1 came first.
         let mine = fx.store.next_slice(p.id, Some("/wt/9")).unwrap().unwrap();
         assert_eq!(mine.key, "PR2");
     }

@@ -40,6 +40,15 @@ fn run() -> Result<()> {
         return cmd::plan::init(cli.db.as_deref(), &cwd, args);
     }
 
+    // A session-start hook runs in every session, including ones with nothing to do
+    // with a plan. It must never fail the session, so it stays quiet about everything.
+    if let Command::Hook = &cli.command {
+        if let Ok(mut app) = App::open(cli.db.as_deref(), &cwd, cli.json) {
+            let _ = cmd::handoff::hook(&mut app, plan_ref);
+        }
+        return Ok(());
+    }
+
     let mut app = App::open(cli.db.as_deref(), &cwd, cli.json)?;
 
     match &cli.command {
@@ -48,6 +57,7 @@ fn run() -> Result<()> {
         Command::Current(args) => cmd::context::current(&mut app, args, plan_ref),
         Command::Status(args) => cmd::context::status(&mut app, args, plan_ref),
         Command::Ls(args) => cmd::plan::ls(&app, args),
+        Command::Find(args) => cmd::find::find(&mut app, args),
         Command::Show(args) => cmd::plan::show(&app, args, plan_ref),
         Command::Set(args) => cmd::plan::set(&mut app, args, plan_ref),
         Command::Edit(args) => cmd::plan::edit(&mut app, args, plan_ref),
@@ -61,6 +71,10 @@ fn run() -> Result<()> {
         Command::Gotcha(c) => cmd::note::gotcha(&mut app, c, plan_ref),
         Command::Import(args) => cmd::import::import(&mut app, args),
         Command::Export(args) => cmd::import::export(&app, args, plan_ref),
+        Command::Handoff(c) => cmd::handoff::run(&mut app, c, plan_ref),
+        Command::Resume(args) => cmd::handoff::resume(&mut app, args, plan_ref),
+        Command::Hook => unreachable!("handled above"),
+        Command::Doctor => cmd::doctor::doctor(&mut app),
         Command::Repos => cmd::plan::repos(&app),
         Command::Db(c) => cmd::db::run(&app, c),
     }

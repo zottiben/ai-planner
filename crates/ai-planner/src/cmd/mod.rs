@@ -1,5 +1,8 @@
 pub mod context;
 pub mod db;
+pub mod doctor;
+pub mod find;
+pub mod handoff;
 pub mod import;
 pub mod note;
 pub mod plan;

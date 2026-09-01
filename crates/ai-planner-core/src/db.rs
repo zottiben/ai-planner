@@ -5,7 +5,10 @@ use rusqlite::{Connection, Transaction, TransactionBehavior};
 use crate::error::{Error, Result};
 use crate::util::now;
 
-const MIGRATIONS: &[(i64, &str, &str)] = &[(1, "core", include_str!("migrations/001_core.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+    (1, "core", include_str!("migrations/001_core.sql")),
+    (2, "search", include_str!("migrations/002_search.sql")),
+];
 
 /// One database for every repo and every worktree (D1). Override for tests, or for
 /// anyone who wants a project-local file.
@@ -158,12 +161,12 @@ mod tests {
         let path = tmp.path().join("p.db");
 
         let db = Db::open_or_create(&path).unwrap();
-        assert_eq!(db.schema_version().unwrap(), 1);
+        assert_eq!(db.schema_version().unwrap(), 2);
         assert_eq!(db.pending_migrations().unwrap(), 0);
         drop(db);
 
         let db = Db::open(&path).unwrap();
-        assert_eq!(db.schema_version().unwrap(), 1);
+        assert_eq!(db.schema_version().unwrap(), 2);
 
         let views: i64 = db
             .conn()

@@ -290,6 +290,19 @@ impl Store {
             });
         };
 
+        // Handoffs are deduped by content like plans are, so re-running an import does
+        // not stack up identical checkpoints.
+        let sha = sha256(md.as_bytes());
+        if let Some((plan_id, first_seen)) = self.import_by_sha(repo_id, &sha)? {
+            if !opts.dry_run {
+                self.record_import(plan_id, path, &sha, md.len())?;
+            }
+            return Ok(Outcome::AlreadyImported {
+                plan: self.get_plan(plan_id)?,
+                first_seen,
+            });
+        }
+
         // The file's own location is authoritative. Handoffs routinely mention other
         // worktrees, so reading a path out of the text picks the wrong one.
         let worktree = crate::git::GitContext::detect(path.parent().unwrap_or(Path::new(".")))
@@ -330,6 +343,7 @@ impl Store {
             worktree_path: Some(worktree.clone()),
             ..Default::default()
         })?;
+        self.record_import(plan_id, path, &sha, md.len())?;
 
         Ok(Outcome::HandoffAttached { plan, worktree })
     }
@@ -447,6 +461,17 @@ impl Store {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?)
+    }
+
+    /// Has this exact path been imported before? Used by `doctor` to tell a leftover
+    /// file that is safe to delete from one that has never been read.
+    pub fn import_path_seen(&self, path: &str) -> Result<bool> {
+        let n: i64 = self.db().conn().query_row(
+            "SELECT COUNT(*) FROM plan_import WHERE source_path = ?1",
+            [path],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
     }
 
     pub fn import_sources(&self, plan_id: i64) -> Result<Vec<String>> {

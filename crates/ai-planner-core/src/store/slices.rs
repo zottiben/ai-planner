@@ -183,9 +183,14 @@ impl Store {
                  WHERE id = ?1",
                 params![id, status, reason, now()],
             )?;
+            // Work starting on any slice means the plan itself is under way.
             tx.execute(
-                "UPDATE plan SET updated_at = ?2 WHERE id = ?1",
-                params![plan_id, now()],
+                "UPDATE plan SET
+                     status = CASE WHEN status IN ('draft','ready') AND ?3 IN ('active','in_review')
+                                   THEN 'active' ELSE status END,
+                     updated_at = ?2
+                 WHERE id = ?1",
+                params![plan_id, now(), status],
             )?;
             super::notes::insert_log(tx, &me, plan_id, Some(id), LogKind::Status, &note)?;
             Ok(())
@@ -264,6 +269,13 @@ impl Store {
                 params![id, me, now(), worktree, branch],
             )?;
             if n == 1 {
+                tx.execute(
+                    "UPDATE plan SET
+                         status = CASE WHEN status IN ('draft','ready') THEN 'active' ELSE status END,
+                         updated_at = ?2
+                     WHERE id = ?1",
+                    params![plan_id, now()],
+                )?;
                 super::notes::insert_log(
                     tx,
                     &me_for_log,

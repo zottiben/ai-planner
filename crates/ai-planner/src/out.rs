@@ -49,6 +49,17 @@ pub fn ok(msg: &str) {
     }
 }
 
+/// Cut to `max` visible characters, marking that it was cut.
+pub fn truncate(s: &str, max: usize) -> String {
+    let flat = s.replace('\n', " ");
+    if flat.chars().count() <= max {
+        return flat;
+    }
+    let mut out: String = flat.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
 /// A left-aligned table that sizes its own columns. Cells may contain colour
 /// escapes, so width is measured on the visible text.
 pub struct Table {

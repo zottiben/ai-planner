@@ -51,6 +51,9 @@ pub enum Command {
     /// List plans
     Ls(LsArgs),
 
+    /// Search every plan by what it says
+    Find(FindArgs),
+
     /// Print a plan as markdown
     Show(ShowArgs),
 
@@ -93,6 +96,19 @@ pub enum Command {
 
     /// Write a plan back out as markdown
     Export(ExportArgs),
+
+    /// Checkpoint this worktree before clearing context
+    #[command(subcommand)]
+    Handoff(HandoffCmd),
+
+    /// Print what a fresh session needs to pick this up
+    Resume(ResumeArgs),
+
+    /// One line of session-start context, as harness hook JSON
+    Hook,
+
+    /// Check the setup and point out anything that needs attention
+    Doctor,
 
     /// Registered repos
     Repos,
@@ -171,6 +187,31 @@ pub struct LsArgs {
     /// Substring of the title, slug or ticket
     #[arg(value_name = "QUERY")]
     pub query: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct FindArgs {
+    /// What to look for
+    pub query: Vec<String>,
+
+    /// Search every repo, not just this one
+    #[arg(long)]
+    pub all: bool,
+
+    /// Filter by status; repeatable
+    #[arg(long, value_name = "STATUS")]
+    pub status: Vec<String>,
+
+    /// Only unfinished plans
+    #[arg(long)]
+    pub incomplete: bool,
+
+    #[arg(long, short = 'n', default_value = "12")]
+    pub limit: usize,
+
+    /// Rebuild the index first
+    #[arg(long)]
+    pub reindex: bool,
 }
 
 #[derive(Args, Debug)]
@@ -422,6 +463,45 @@ pub struct GotchaAddArgs {
     pub body: Option<String>,
     #[arg(long, conflicts_with = "body")]
     pub file: Option<PathBuf>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HandoffCmd {
+    /// Record where this worktree got to
+    Write(HandoffWriteArgs),
+    /// The last handoff from this worktree
+    Show,
+    /// The latest handoff from every worktree on this plan
+    Ls,
+}
+
+#[derive(Args, Debug)]
+pub struct HandoffWriteArgs {
+    /// A gate result: `typecheck=pass`, `test=pass:731 tests`, `lint=fail`. Repeatable
+    #[arg(long, value_name = "NAME=RESULT")]
+    pub gate: Vec<String>,
+
+    /// The next concrete work item; repeatable. Defaults to the plan's next slice
+    #[arg(long, value_name = "ITEM")]
+    pub next: Vec<String>,
+
+    /// Anything the next context needs that the plan does not already say
+    #[arg(long)]
+    pub notes: Option<String>,
+
+    #[arg(long, conflicts_with = "notes")]
+    pub notes_file: Option<PathBuf>,
+
+    /// Record the handoff even with uncommitted changes
+    #[arg(long)]
+    pub allow_dirty: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ResumeArgs {
+    /// Also claim the next slice for this worktree
+    #[arg(long)]
+    pub claim: bool,
 }
 
 #[derive(Args, Debug)]
