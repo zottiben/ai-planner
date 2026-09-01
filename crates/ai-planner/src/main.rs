@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod cmd;
+mod mcp;
 mod out;
 
 use std::io::Read;
@@ -58,6 +59,7 @@ fn run() -> Result<()> {
         Command::Status(args) => cmd::context::status(&mut app, args, plan_ref),
         Command::Ls(args) => cmd::plan::ls(&app, args),
         Command::Find(args) => cmd::find::find(&mut app, args),
+        Command::Embed(args) => cmd::find::embed_cmd(&mut app, args),
         Command::Show(args) => cmd::plan::show(&app, args, plan_ref),
         Command::Set(args) => cmd::plan::set(&mut app, args, plan_ref),
         Command::Edit(args) => cmd::plan::edit(&mut app, args, plan_ref),
@@ -74,10 +76,27 @@ fn run() -> Result<()> {
         Command::Handoff(c) => cmd::handoff::run(&mut app, c, plan_ref),
         Command::Resume(args) => cmd::handoff::resume(&mut app, args, plan_ref),
         Command::Hook => unreachable!("handled above"),
+        Command::Serve(args) => serve(app, args),
         Command::Doctor => cmd::doctor::doctor(&mut app),
         Command::Repos => cmd::plan::repos(&app),
         Command::Db(c) => cmd::db::run(&app, c),
     }
+}
+
+/// The MCP server needs an async runtime; nothing else in the tool does, so it is
+/// started here rather than wrapping `main`.
+fn serve(mut app: App, args: &cli::ServeArgs) -> Result<()> {
+    let root = match &args.root {
+        Some(dir) => dir.clone(),
+        None => std::env::current_dir().context("reading the working directory")?,
+    };
+    app.store
+        .set_actor(args.actor.clone().unwrap_or_else(|| "mcp".to_string()));
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("starting the async runtime")?
+        .block_on(mcp::run(app.store, root))
 }
 
 /// Bodies come from an argument, a file, or stdin. Long markdown on a command line is

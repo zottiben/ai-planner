@@ -107,6 +107,15 @@ pub fn normalise_remote(url: &str) -> String {
         .join("/")
 }
 
+/// Hex sha256. Used to dedupe imported files and to skip re-embedding unchanged text.
+pub fn sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// Truncate to `max` display columns, appending an ellipsis when it had to cut.
 pub fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {

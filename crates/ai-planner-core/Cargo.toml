@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+model-embeddings = ["dep:fastembed"]
+
 [dependencies]
 thiserror.workspace = true
 serde.workspace = true
@@ -12,6 +16,7 @@ serde_json.workspace = true
 rusqlite.workspace = true
 time.workspace = true
 sha2 = "0.10"
+fastembed = { version = "5", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

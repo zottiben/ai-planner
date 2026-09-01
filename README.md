@@ -5,139 +5,189 @@ worktrees. `aip` gives every worktree, every repo and every agent harness the sa
 view of the same plan, and lets parallel agents update it without clobbering each
 other.
 
-It exists because a plan kept as `BUILD_PLAN.md` gets copied into each worktree so
-several PRs can be built at once, and then the copies drift: two agents write progress
-into two versions of one plan and one of them wins.
+A plan kept as `BUILD_PLAN.md` gets copied into each worktree so several PRs can be
+built at once. Then the copies drift, two agents write progress into two versions of
+one plan, and one of them wins. This removes the copies.
 
-## Install
+---
+
+## Get started
+
+### 1. Install
+
+Needs a Rust toolchain ([rustup.rs](https://rustup.rs)).
 
 ```sh
-curl -fsSL https://zottiben.github.io/ai-planner/install.sh | sh
+git clone https://github.com/zottiben/ai-planner && cd ai-planner
+./install/install.sh
 ```
 
-That installs the `aip` binary with `cargo install` (needs a Rust toolchain -
-https://rustup.rs), installs the agent skill at user scope, and wires the session-start
-hook so every new agent session is told which plan its worktree is on.
+That does four things:
 
-Then, in each repo:
+| | |
+| --- | --- |
+| `cargo install` | the `aip` binary |
+| `install-skill.sh` | the agent skill into `~/.claude/skills` and `~/.agents/skills` |
+| `install-hook.sh` | a session-start hook, merged into `~/.claude/settings.json` |
+| `install-mcp.sh` | the MCP server, registered with Claude Code, Codex and Pi |
+
+Add `--with-model` for semantic search (see [step 6](#6-optional-search-by-meaning)).
+Each script runs standalone and takes `--project` to install into the current repo
+instead of user-wide.
+
+Behind a TLS-intercepting proxy, `export CARGO_NET_GIT_FETCH_WITH_CLI=true` first.
+
+### 2. Register your repo
+
+Once per repo, from any worktree - all of them share the one database.
 
 ```sh
-aip init          # register the repo (run it once, from any worktree)
+cd ~/src/widget
+aip init
 ```
 
-## Use it
+### 3. Bring your existing plans in
 
 ```sh
-aip status                       # where you are: plan, slice, next item, questions
-aip show                         # the whole plan as markdown - the file it replaced
-aip ls                           # plans in this repo   (--all for every repo)
-aip find "two-pane date panel"   # search everything every plan says
+aip import --scan ~/.awt/widget-a1b2c3 --scan ~/src/widget --dry-run
+aip import --scan ~/.awt/widget-a1b2c3 --scan ~/src/widget
+```
+
+It finds every `*BUILD_PLAN*.md` and `HANDOFF*.md` and reads the dialects these are
+actually written in - numbered sections, slices keyed `PR1` / `S1` / `M4` / `Phase 0` /
+`Slice 0` at either heading level, decisions keyed `D1` / `AD-1`, status markers
+(`✅ DONE`, `⛔ BLOCKED`, `✅ IN REVIEW`, `- DELIVERED 2026-07-29`), `**Demo:**` lines
+and dated progress-log bullets.
+
+- The same file in four worktrees imports **once**; every path it was found at is kept.
+- Copies that have **drifted apart** are reported as a conflict, never merged silently.
+  Compare them, then `--replace` to pick a winner.
+- `HANDOFF*.md` attaches to its plan instead of becoming one, and its gotchas become rows.
+- **Nothing is deleted, ever.** The original markdown is kept verbatim in the database
+  too, so you can delete the files yourself whenever you are satisfied. `aip doctor`
+  lists which are safe to remove.
+
+### 4. Use it
+
+```sh
+aip status         # where you are: plan, slice, next item, open questions, recent notes
+aip show           # the whole plan as markdown - the document the file used to be
+aip ls             # plans in this repo        (--all for every repo)
+aip find "herd symlink"
 
 aip slice ls
-aip slice claim PR2              # take it for this worktree before you start
-aip slice set PR2 done
+aip slice claim PR2                  # take it for this worktree before you start
+aip slice set PR2 in_review
 aip log "PR2 gates green on abc1234." --slice PR2
-
-aip handoff write --gate typecheck=pass --gate "test=pass:731 tests"
-aip resume                       # what a fresh session needs to pick this up
-
-aip db open                      # browse it in TablePlus
-aip doctor                       # check the setup
+aip decision add "One headless core, two shells" "The core carries all the logic."
+aip gotcha add "The Herd symlink is shared" "Repoint it, then put it back."
 ```
 
-Every command takes `--json`.
-
-## Bringing existing plans in
+### 5. Browse it
 
 ```sh
-aip import --scan ~/.awt/my-repo-hash --scan ~/src/my-repo
+aip db open        # hands the file to TablePlus
 ```
 
-The importer reads the dialects these documents are actually written in: numbered
-sections, slices keyed `PR1` / `S1` / `M4` / `Phase 0` / `Slice 0` at either heading
-level, decisions keyed `D1` / `AD-1`, status markers (`✅ DONE`, `⛔ BLOCKED`,
-`✅ IN REVIEW`, `- DELIVERED 2026-07-29`), `**Demo:**` lines and dated progress-log
-bullets. It keeps the original file verbatim, so nothing is lost and the markdown can
-be deleted afterwards.
+Five views ship with the schema: `v_plans`, `v_slices`, `v_log`, `v_open_questions`,
+`v_worktrees`. Open `v_plans` and you have a dashboard with no query written.
 
-- The same file copied into four worktrees imports **once**, and every path it was
-  found at is recorded.
-- Copies that have **drifted apart** are reported as a conflict, never merged silently.
-  `--replace` picks a winner.
-- `HANDOFF*.md` files attach to their plan rather than becoming plans, and their
-  gotchas become rows.
+### 6. Optional: search by meaning
 
-`aip doctor` then lists which files are safely importable and which are already in and
-can be deleted.
+Off by default. Lexical search answers most questions, and this pulls in an ONNX
+runtime plus a ~130 MB model.
 
-## How it finds your plan
+```sh
+./install/install.sh --with-model     # or add --features model-embeddings to cargo install
+aip embed                             # downloads the model once, then indexes
+```
 
-`aip` works out which plan a worktree is on, in this order, stopping at the first hit:
+`aip find` then fuses meaning with words, so a query need not share vocabulary with the
+plan. Everything stays on the machine - no API keys, no inference calls. `aip embed
+--clear` reverts to lexical; `--model-dir <dir>` loads a pre-downloaded model on an
+offline machine.
 
-1. `--plan`, or `$AI_PLANNER_PLAN`.
-2. A slice that records the current branch.
-3. A slice claimed in this worktree.
-4. The last handoff written from this worktree.
-5. A learned association from a previous resolution here.
-6. A ticket key in the branch name (`feature/acme-1234-csv-export` -> `ACME-1234`).
-7. The repo's only unfinished plan.
+### 7. Check it
 
-`aip current --why` says which rule fired. When none does, it lists the candidates
-rather than guessing - naming one teaches the association for next time.
+```sh
+aip doctor
+```
 
-## Parallel agents
+Reports stale claims, blocked slices with no reason recorded, and which markdown files
+are imported and safe to delete.
 
-- SQLite in WAL mode; every write is an `IMMEDIATE` transaction.
-- The progress log is **append-only**, enforced by a trigger. Concurrent notes cannot
-  conflict, which is the failure this project exists to remove.
-- Section and slice bodies carry a `rev`. `--expect-rev` refuses a write whose base has
-  moved instead of overwriting it.
-- `aip slice claim` is guarded in the `UPDATE`'s `WHERE`, scoped to (actor, worktree),
-  so two agents racing produce exactly one winner.
+---
 
-## Agent harnesses
+## Working with agents
 
-Three things ship so an agent does not have to be told about this each session:
+Three pieces, so an agent never has to be told about this:
 
-| Piece | What it does |
-| --- | --- |
-| **Session hook** | `aip hook` prints one line of context - plan, slice, next item, whether a handoff is waiting - as harness hook JSON. Silent when there is nothing to say. |
-| **Skill** | `skill/SKILL.md`, installed to `~/.claude/skills` and `~/.agents/skills`, tells the agent which command to reach for. |
-| **`--json`** | Every command, for when the agent needs to branch on a result. |
+- **Session hook** - `aip hook` prints one line of context (plan, slice, next item,
+  whether a handoff is waiting) as harness hook JSON. Silent when there is nothing to
+  say, and it can never fail a session.
+- **MCP server** - `aip serve` over stdio. Tools: `locate`, `get_plan`, `get_resume`,
+  `search_plans`, `list_plans`, `list_slices`, `get_slice`, `claim_slice`,
+  `release_slice`, `set_slice_status`, `update_slice`, `add_slice`, `append_log`,
+  `add_decision`, `supersede_decision`, `add_gotcha`, `open_question`,
+  `list_questions`, `answer_question`, `update_section`, `create_plan`,
+  `write_handoff`, `import_markdown`.
+- **Skill** - tells the agent which tool to reach for, and not to write plan markdown.
 
 Codex and Pi: call `aip hook` from your own session-start hook; it prints the same JSON.
 
 ## Handoffs
 
-`aip handoff write` replaces step 3 of the `toolbox-handoff` skill - the same content,
-scoped to (plan, worktree), so it is not a file and cannot be copied. Gates are
-recorded with their real results; a failed gate is reported as failed rather than
-rolled into a green checkpoint. A fresh session runs `aip resume`.
-
-## Where the database lives
-
-`$AI_PLANNER_DB`, else `$XDG_DATA_HOME/ai-planner/planner.db`, else
-`~/.ai-planner/planner.db`. One file for every repo, which is what lets four worktrees
-share a plan with no setup.
-
-Timestamps are ISO-8601 text and statuses are words, so the file reads properly in
-TablePlus. Five views ship with the schema - `v_plans`, `v_slices`, `v_log`,
-`v_open_questions`, `v_worktrees` - so opening it answers "what is going on" with no
-query written.
-
 ```sh
-aip db open      # hand the file to TablePlus
-aip db backup    # VACUUM INTO a timestamped copy, safe while agents are writing
-aip db status    # schema version and row counts
+aip handoff write --gate typecheck=pass --gate "test=pass:731 tests"
+aip resume         # in the next session
 ```
+
+This replaces step 3 of the `toolbox-handoff` skill - the same content, scoped to
+(plan, worktree), so it is not a file and cannot be copied. Gates keep their real
+results: a failure is reported as red, never folded into a green checkpoint.
+
+## How it finds your plan
+
+In this order, stopping at the first hit:
+
+1. `--plan`, or `$AI_PLANNER_PLAN`
+2. a slice recording the current branch
+3. a slice claimed in this worktree
+4. the last handoff written from this worktree
+5. a learned association from a previous resolution here
+6. a ticket key in the branch name (`feature/acme-1234-csv-export` -> `ACME-1234`)
+7. the repo's only unfinished plan
+
+`aip current --why` says which rule fired. When none does it lists the candidates
+rather than guessing; naming one teaches the association for next time.
+
+## Parallel agents
+
+- WAL mode; every write is an `IMMEDIATE` transaction.
+- The progress log is **append-only**, enforced by a trigger - concurrent notes cannot
+  conflict.
+- Sections and slices carry a `rev`; `--expect-rev` refuses a stale write instead of
+  overwriting it.
+- `aip slice claim` is guarded in the `UPDATE`'s `WHERE`, scoped to (actor, worktree),
+  so two agents racing produce exactly one winner.
 
 ## Statuses
 
 `draft` · `ready` · `active` · `in_review` · `blocked` · `done` · `deferred`
 
-"Incomplete" is the filter `--incomplete` over `ready|active|in_review|blocked`: an
-agent needs to know whether to resume something or to begin it. Every status change
-writes a log row, so history is free.
+`--incomplete` filters `ready|active|in_review|blocked`: an agent needs to know whether
+to resume something or to begin it. Every status change writes a log row.
+
+## Where things live
+
+| | |
+| --- | --- |
+| Database | `$AI_PLANNER_DB`, else `$XDG_DATA_HOME/ai-planner/planner.db`, else `~/.ai-planner/planner.db` |
+| Model cache | `$AI_PLANNER_MODEL_CACHE`, else `~/.cache/ai-planner/fastembed` |
+| Actor in the log | `$AI_PLANNER_ACTOR`, else `$USER` |
+
+One database for every repo - that is what lets four worktrees share a plan with no
+setup. `aip db backup` takes a consistent copy while agents are writing.
 
 ## Development
 
@@ -145,5 +195,5 @@ writes a log row, so history is free.
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo run -p ai-planner -- status
+cargo test --features model-embeddings
 ```

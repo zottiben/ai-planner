@@ -161,10 +161,11 @@ impl Store {
             }
         }
 
-        // 7. Only one unfinished plan in the repo.
+        // 7. Only one unfinished plan in the repo. Drafts count: a plan created a
+        // moment ago has to be reachable without being named.
         let unfinished = self.list_plans(&PlanFilter {
             repo_id: Some(repo_id),
-            statuses: Status::INCOMPLETE.to_vec(),
+            statuses: Status::UNFINISHED.to_vec(),
             query: None,
         })?;
         if unfinished.len() == 1 {
@@ -178,7 +179,7 @@ impl Store {
         }
 
         let reason = if unfinished.is_empty() {
-            "no unfinished plan in this repo".to_string()
+            "no plan in this repo yet".to_string()
         } else {
             format!(
                 "{} unfinished plans here and nothing ties this worktree to one",

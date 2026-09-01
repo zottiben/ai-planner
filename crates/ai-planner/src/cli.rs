@@ -54,6 +54,9 @@ pub enum Command {
     /// Search every plan by what it says
     Find(FindArgs),
 
+    /// Build the optional local semantic index
+    Embed(EmbedArgs),
+
     /// Print a plan as markdown
     Show(ShowArgs),
 
@@ -106,6 +109,9 @@ pub enum Command {
 
     /// One line of session-start context, as harness hook JSON
     Hook,
+
+    /// Run the MCP server over stdio
+    Serve(ServeArgs),
 
     /// Check the setup and point out anything that needs attention
     Doctor,
@@ -209,9 +215,36 @@ pub struct FindArgs {
     #[arg(long, short = 'n', default_value = "12")]
     pub limit: usize,
 
-    /// Rebuild the index first
+    /// Rebuild the lexical index first
     #[arg(long)]
     pub reindex: bool,
+
+    /// Words only - skip the semantic leg even when a model is installed
+    #[arg(long)]
+    pub lexical: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct EmbedArgs {
+    /// bge-small-en-v1.5 (default) | all-minilm-l6 | bge-base | bge-large
+    #[arg(long, default_value = ai_planner_core::embed::DEFAULT_MODEL)]
+    pub model: String,
+
+    /// Load a pre-downloaded model directory instead of fetching one
+    #[arg(long, value_name = "DIR")]
+    pub model_dir: Option<PathBuf>,
+
+    /// Re-embed everything, not just what changed
+    #[arg(long)]
+    pub force: bool,
+
+    /// Delete the semantic index; search goes back to lexical only
+    #[arg(long)]
+    pub clear: bool,
+
+    /// Report what is indexed and with which model
+    #[arg(long)]
+    pub status: bool,
 }
 
 #[derive(Args, Debug)]
@@ -542,6 +575,17 @@ pub struct ExportArgs {
     /// Overwrite an existing file
     #[arg(long)]
     pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ServeArgs {
+    /// Resolve plans from this directory. Defaults to the working directory
+    #[arg(long, value_name = "DIR")]
+    pub root: Option<PathBuf>,
+
+    /// How writes are attributed in the log. Defaults to the client name
+    #[arg(long)]
+    pub actor: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]

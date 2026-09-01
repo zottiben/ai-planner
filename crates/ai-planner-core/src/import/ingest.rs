@@ -2,14 +2,12 @@
 
 use std::path::Path;
 
-use rusqlite::{params, OptionalExtension};
-use sha2::{Digest, Sha256};
-
 use super::parse::{parse_plan, ParsedPlan};
 use crate::error::Result;
 use crate::model::{DecisionStatus, LogKind, Plan, Status};
 use crate::store::{NewLog, NewPlan, Store};
-use crate::util::{now, slugify, ticket_key};
+use crate::util::{now, sha256, slugify, ticket_key};
+use rusqlite::{params, OptionalExtension};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ImportOptions {
@@ -54,11 +52,6 @@ pub enum Outcome {
         decisions: usize,
         log: usize,
     },
-}
-
-pub fn sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// A handoff is a different document: it records where one worktree got to, not what

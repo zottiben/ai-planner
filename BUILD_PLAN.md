@@ -206,15 +206,43 @@ Steps 2-6 cover every plan in the sample without any AI. The point of the cascad
 that the answer is *correct and explainable*, and `aip current --why` prints which rule
 fired.
 
+### D8a - Vectors live in an ordinary table, not in `sqlite-vec`
+
+file-sql uses `sqlite-vec`; this does not. Two reasons, both specific to the scale and
+the audience here:
+
+- A plan database holds thousands of rows, not millions. A brute-force cosine scan is
+  single-digit milliseconds - less than the query planner overhead of a vec0 index.
+- A vec0 virtual table brings shadow tables (`_chunks`, `_rowids`) into a file that is
+  meant to be browsed in TablePlus (D13), and needs the extension loaded by every
+  client that opens it.
+
+Vectors are keyed by *what they describe* rather than by the FTS rowid, so rebuilding
+the lexical index does not throw the embeddings away, and unchanged text is never
+re-embedded.
+
+### D8b - Two vector spaces must never be compared
+
+Every vector stores the model that produced it, and the semantic leg stands down
+entirely when the index was built by a different model. Comparing vectors across models
+returns confident nonsense rather than an error, which is the worst possible failure for
+a tool whose job is to find the right plan.
+
+`aip embed` after switching models re-embeds under the new id; `--clear` drops the lot.
+
 ### D8 - The model is opt-in, exactly as in file-sql
 
 Default search is **lexical**: FTS5 over titles, sections, slices and logs, ranked with
 BM25 plus recency and repo/branch affinity. No model download, no network, deterministic.
 
-`--features model-embeddings` plus `search.mode = "model"` enables local BGE embeddings
-via `fastembed` and `sqlite-vec` for "find the plan about the thing with the two-pane
-date panel". Same crate, same flags, same defaults as file-sql, so there is one thing
-to understand rather than two.
+`--features model-embeddings` plus an explicit `aip embed` enables local BGE embeddings
+via `fastembed`, fused with the lexical ranking. The opt-in is a command rather than a
+config flag so the first search never silently downloads 130 MB.
+
+The model files are fetched with `curl`, not with the crate's own HTTP client: the
+bundled-roots TLS stack inside `hf-hub` fails outright behind a TLS-intercepting
+corporate proxy and ignores `SSL_CERT_FILE`, which would make the feature unusable on
+exactly the machines it is built for.
 
 ### D9 - `plan_affinity` is the learning, and it is a counter, not a model
 
@@ -346,32 +374,37 @@ ACME-1234 pair as a conflict; `aip ls` lists 6 distinct plans.
 
 - FTS5 over plan/section/slice/log with BM25 + recency + affinity ranking (D8).
 - `aip find "<query>"`, `--repo`/`--all`, `--status`, JSON output.
-- Optional `model-embeddings` feature: `fastembed` BGE + `sqlite-vec` hybrid rank.
-  **Not built** - the lexical mode answers every query tried against the real plans, so
-  the model stays unbuilt until a query needs it (D8 keeps it opt-in either way).
+- Optional `model-embeddings` feature: `fastembed` BGE, fused with the lexical leg by
+  reciprocal rank. **Built**, off by default, behind `aip embed`.
 
 **Demo:** `aip find "two-pane date panel"` returns ACME-1234 first with the matching
 line; `aip find "herd symlink"` returns the gotcha as its top hit. Both verified
 against the imported plans.
 
-### PR5 - MCP server and skill  - NOT BUILT
+### PR5 - MCP server and skill  ✅ DONE
 
-Still to build. The skill half shipped with PR6, and every command takes `--json`, so a
-harness can already drive the whole tool through the CLI - which is why this slice went
-last rather than first.
+- `aip serve` (`rmcp`, stdio), 23 tools: `locate`, `get_plan`, `get_resume`,
+  `search_plans`, `list_plans`, `list_slices`, `get_slice`, `claim_slice`,
+  `release_slice`, `set_slice_status`, `update_slice`, `add_slice`, `append_log`,
+  `add_decision`, `supersede_decision`, `add_gotcha`, `open_question`,
+  `list_questions`, `answer_question`, `update_section`, `create_plan`,
+  `write_handoff`, `import_markdown`.
+- `install-mcp.sh` registers with Claude Code, Codex (`~/.codex/config.toml`) and Pi
+  (`.pi/mcp.json`), merging rather than overwriting.
 
-- `aip serve` (`rmcp`, stdio): `resolve_plan`, `search_plans`, `get_plan`, `get_slice`,
-  `list_slices`, `claim_slice`, `set_slice_status`, `append_log`, `add_decision`,
-  `add_gotcha`, `open_question`, `answer_question`, `update_section`, `write_handoff`,
-  `get_handoff`, `create_plan`.
-- Registration for Claude Code, Codex (`~/.codex/config.toml`), Pi (`.pi/mcp.json`).
+Two things the server does that the CLI does not have to:
 
-The one thing MCP buys over the CLI is that tool calls are structured and cannot be
-mistyped; against that, the CLI needs no server process per worktree. Worth building,
-not urgent.
+- **Git state is re-detected on every call**, not captured at start-up. An agent
+  switches branches mid-session, and a stale branch resolves to the wrong plan.
+- **`import_markdown` defaults to a dry run.** A tool call that quietly ingests a
+  directory is worth a look first.
 
-**Demo:** in Claude Code, "what am I building?" answers from the DB with no file read;
-marking a slice done from the agent is visible in TablePlus immediately.
+Covered by `crates/ai-planner/tests/mcp_stdio.rs`, which drives a real server process
+over stdio: the whole workflow, a claim refused across two worktrees of one repo, a
+stale `expect_rev` refused, and the dry-run default.
+
+**Demo:** in Claude Code, "what am I building?" answers from the database with no file
+read; marking a slice done from the agent is visible in TablePlus immediately.
 
 ### PR6 - Handoff and the session-start hook  ✅ DONE
 
@@ -386,7 +419,8 @@ opens already knowing the plan, the slice and the next item, with no prompt.
 
 ### PR7 - Install, docs, dogfood  - PARTLY DONE
 
-- `install.sh` (+ `install-skill.sh`, `install-hook.sh`) in the file-sql shape. **Done**;
+- `install.sh` (+ `install-skill.sh`, `install-hook.sh`, `install-mcp.sh`) in the
+  file-sql shape. **Done**;
   GH Pages not set up, so the `curl | sh` URLs are not live yet.
 - `aip doctor` (DB reachable, migrations current, stale claims, blocked slices with no
   reason, un-imported `*_BUILD_PLAN.md` still on disk). **Done.**

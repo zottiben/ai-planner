@@ -4,6 +4,7 @@
 //! and every worktree on the machine.
 
 pub mod db;
+pub mod embed;
 pub mod error;
 pub mod git;
 pub mod handoff;
@@ -16,6 +17,7 @@ pub mod store;
 pub mod util;
 
 pub use db::{default_db_path, Db, DB_ENV};
+pub use embed::Embedder;
 pub use error::{Error, Result};
 pub use git::GitContext;
 pub use handoff::{Gate, Handoff, NewHandoff};
@@ -25,7 +27,7 @@ pub use model::{
 };
 pub use render::render_plan;
 pub use resolve::{Resolution, Resolved, Rule, Unresolved};
-pub use search::{Hit, SearchOptions};
+pub use search::{EmbedStats, Hit, IndexUnit, SearchOptions};
 pub use store::{
     default_actor, NewDecision, NewLog, NewPlan, NewSlice, PlanFilter, PlanUpdate, SectionWrite,
     SliceUpdate, Store,

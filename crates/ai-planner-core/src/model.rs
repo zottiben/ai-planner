@@ -29,8 +29,20 @@ impl Status {
     ];
 
     /// The statuses meant by "incomplete": agreed work that is not finished and not
-    /// consciously dropped.
+    /// consciously dropped. This is the `--incomplete` filter, and it deliberately
+    /// excludes drafts - a plan still being written is not outstanding work.
     pub const INCOMPLETE: [Status; 4] = [
+        Status::Ready,
+        Status::Active,
+        Status::InReview,
+        Status::Blocked,
+    ];
+
+    /// Anything not finished or dropped, drafts included. This is what resolution
+    /// considers a live candidate: a plan you started writing five seconds ago is
+    /// unquestionably the plan you are on.
+    pub const UNFINISHED: [Status; 5] = [
+        Status::Draft,
         Status::Ready,
         Status::Active,
         Status::InReview,

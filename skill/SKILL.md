@@ -1,16 +1,27 @@
 ---
 name: ai-planner
-description: Read and update the build plan for this repo/worktree using the `aip` CLI instead of BUILD_PLAN.md or HANDOFF.md files. Use when asked what to build next, when finishing a slice or PR, when recording a decision, gotcha or progress note, when handing off before clearing context, and when resuming a session.
+description: Read and update the build plan for this repo/worktree using the ai-planner MCP tools or the `aip` CLI, instead of BUILD_PLAN.md or HANDOFF.md files. Use when asked what to build next, when finishing a slice or PR, when recording a decision, gotcha or progress note, when handing off before clearing context, and when resuming a session.
 ---
 
 # ai-planner: the build plan lives in the database
 
 Build plans for this machine are rows in one SQLite database, not markdown files.
-There is no `BUILD_PLAN.md` or `HANDOFF.md` to read or write - `aip` is how you read
-and update the plan, and it works identically from every worktree.
+There is no `BUILD_PLAN.md` or `HANDOFF.md` to read or write, and it works identically
+from every worktree.
 
-**Do not create plan or handoff markdown files.** If you find one, offer to
-`aip import` it rather than editing it.
+**Do not create plan or handoff markdown files.** If you find one, offer to import it
+rather than editing it.
+
+## Two ways in - use whichever you have
+
+If the **`ai-planner` MCP server** is connected, prefer its tools: `locate`,
+`get_plan`, `get_resume`, `search_plans`, `list_slices`, `get_slice`, `claim_slice`,
+`set_slice_status`, `append_log`, `add_decision`, `add_gotcha`, `open_question`,
+`write_handoff`, `import_markdown`. They take structured arguments and return JSON.
+
+Otherwise use the **`aip` CLI**, which has the same surface and takes `--json` on
+every command. The sections below give the CLI form; the MCP tool of the same name
+does the same thing.
 
 ## Start of session
 
@@ -87,11 +98,17 @@ refuse an overwrite if another agent changed it since you read it.
 ## Finding a plan
 
 ```sh
-aip ls                    # plans in this repo
-aip ls --all              # every repo
-aip ls --incomplete       # ready, active, in_review, blocked
-aip ls "date range"       # by title, slug or ticket
+aip ls                          # plans in this repo
+aip ls --all                    # every repo
+aip ls --incomplete             # ready, active, in_review, blocked
+aip find "two-pane date panel"  # search everything every plan says
 ```
+
+`aip find` searches titles, sections, slices, decisions, gotchas, questions and
+progress notes. Use it before deciding something - it is how you find out whether a
+question has already been answered or a trap already hit. If a local model has been
+installed (`aip embed`) it also matches on meaning, so a query need not share words
+with the plan; `--lexical` restricts it to words for one query.
 
 ## Machine-readable
 

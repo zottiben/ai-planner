@@ -208,7 +208,7 @@ fn resolve(app: &mut App, plan_ref: Option<&str>) -> Result<Resolution> {
 fn list_candidates(app: &App) -> Result<()> {
     let plans = app.store.list_plans(&ai_planner_core::PlanFilter {
         repo_id: app.repo_id(),
-        statuses: Status::INCOMPLETE.to_vec(),
+        statuses: Status::UNFINISHED.to_vec(),
         query: None,
     })?;
     if plans.is_empty() {

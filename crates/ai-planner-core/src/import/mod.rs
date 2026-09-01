@@ -1,7 +1,8 @@
 pub mod ingest;
 pub mod parse;
 
-pub use ingest::{looks_like_handoff, sha256, ImportOptions, Outcome};
+pub use crate::util::sha256;
+pub use ingest::{looks_like_handoff, ImportOptions, Outcome};
 pub use parse::{parse_plan, ParsedDecision, ParsedLog, ParsedPlan, ParsedSection, ParsedSlice};
 
 /// Lift a handoff's "Gotchas" section into rows. This is the highest-value part of a
