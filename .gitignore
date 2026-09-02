@@ -4,3 +4,8 @@
 *.db-shm
 *.bak
 .DS_Store
+
+# Harness scaffolding. `.claude/skills` is a symlink into `.agents/`, which is kept
+# out of repos, so committing it would give a fresh clone a dangling link.
+.claude/
+.agents/
