@@ -199,13 +199,17 @@ fn blocking_a_slice_keeps_the_reason_and_dropping_the_block_clears_it() {
         .add_slice(NewSlice {
             plan_id: plan.id,
             key: "S7".into(),
-            title: "Group canvas editor".into(),
+            title: "Shared canvas for a group".into(),
             ..Default::default()
         })
         .unwrap();
 
     let blocked = store
-        .set_slice_status(&slice, Status::Blocked, Some("waiting on the upstream project"))
+        .set_slice_status(
+            &slice,
+            Status::Blocked,
+            Some("waiting on the upstream project"),
+        )
         .unwrap();
     assert_eq!(
         blocked.blocked_reason.as_deref(),

@@ -389,7 +389,7 @@ pub(crate) mod tests {
             .embed(&[
                 "the date range picker panel",
                 "a date range picker panel with two months",
-                "gotenberg renders the report PDF pdf",
+                "gotenberg renders the invoice as a pdf",
             ])
             .unwrap();
         assert!(cosine(&v[0], &v[1]) > cosine(&v[0], &v[2]));

@@ -249,10 +249,7 @@ fn two_copies_that_drifted_apart_are_reported_not_merged() {
     match outcome {
         Outcome::Conflict {
             existing_sources, ..
-        } => assert_eq!(
-            existing_sources,
-            vec!["/wt/3/repo/ACME-1234_BUILD_PLAN.md"]
-        ),
+        } => assert_eq!(existing_sources, vec!["/wt/3/repo/ACME-1234_BUILD_PLAN.md"]),
         other => panic!("expected a conflict, got {other:?}"),
     }
 
