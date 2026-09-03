@@ -4,6 +4,7 @@ mod cmd;
 mod mcp;
 mod out;
 mod rules;
+mod update;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -44,8 +45,13 @@ fn run() -> Result<()> {
 
     // Writing the charter block touches no data, so it works before `aip init` -
     // which matters, because installing the rules is part of setting the tool up.
-    if let Command::Rules(c) = &cli.command {
-        return cmd::rules::run(c);
+    // None of these touch plan data, so they work before `aip init` - which matters,
+    // because installing and updating the tool comes before using it.
+    match &cli.command {
+        Command::Rules(c) => return cmd::rules::run(c),
+        Command::Setup(args) => return cmd::setup::setup(args),
+        Command::Update(args) => return cmd::update::update(args),
+        _ => {}
     }
 
     // A session-start hook runs in every session, including ones with nothing to do
@@ -86,7 +92,9 @@ fn run() -> Result<()> {
         Command::Resume(args) => cmd::handoff::resume(&mut app, args, plan_ref),
         Command::Hook(_) => unreachable!("handled above"),
         Command::Sync(args) => cmd::sync::sync(&mut app, args, plan_ref),
-        Command::Rules(_) => unreachable!("handled above"),
+        Command::Rules(_) | Command::Setup(_) | Command::Update(_) => {
+            unreachable!("handled above")
+        }
         Command::Serve(args) => serve(app, args),
         Command::Doctor => cmd::doctor::doctor(&mut app),
         Command::Repos => cmd::plan::repos(&app),

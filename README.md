@@ -22,15 +22,17 @@ git clone https://github.com/zottiben/ai-planner && cd ai-planner
 ./install/install.sh
 ```
 
-That does four things:
+That does three things:
 
 | | |
 | --- | --- |
 | `cargo install` | the `aip` binary |
-| `install-skill.sh` | the agent skill into `~/.claude/skills` and `~/.agents/skills` |
-| `install-hook.sh` | a session-start hook, merged into `~/.claude/settings.json` |
+| `aip setup` | the skill (`~/.claude/skills`, `~/.agents/skills`), the always-on rules block in your global charter, and the three harness hooks merged into `~/.claude/settings.json` |
 | `install-mcp.sh` | the MCP server, registered with Claude Code, Codex and Pi |
-| `aip rules install` | the always-on rules block, appended to your global charter |
+
+The skill and the hook script are compiled into the binary, so `aip setup` needs no
+clone and no network - and they can never fall out of step with the version you are
+running.
 
 Add `--with-model` for semantic search (see [step 6](#6-optional-search-by-meaning)).
 Each script runs standalone and takes `--project` to install into the current repo
@@ -115,8 +117,26 @@ offline machine.
 aip doctor
 ```
 
-Reports stale claims, blocked slices with no reason recorded, and which markdown files
-are imported and safe to delete.
+Reports stale claims, blocked slices with no reason recorded, a missing rules block or
+an out-of-date skill, and which markdown files are imported and safe to delete.
+
+### 8. Keeping it current
+
+```sh
+aip update --check     # is there anything newer?
+aip update             # rebuild, then refresh the skill, rules and hooks
+```
+
+`aip update` reads back **how** you installed it - the source and the feature list -
+from cargo's own records, so a rebuild cannot silently drop `--features
+model-embeddings` and leave semantic search broken with no error. It also backs the
+database up first, since a newer binary may add migrations, and then re-runs `aip
+setup` so the skill, the rules block and the hooks match the new binary. That second
+half is the part that is easy to forget by hand and produces the strangest symptoms
+when it is skipped.
+
+Installed from a local clone? `git pull` there first - `aip update` rebuilds whatever
+the clone currently contains, and will tell you so.
 
 ---
 

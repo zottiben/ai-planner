@@ -38,18 +38,18 @@ else
 fi
 ok "aip installed"
 
-if [ -n "$here" ] && [ -f "$here/install/install-skill.sh" ]; then
-  sh "$here/install/install-skill.sh"
-  sh "$here/install/install-hook.sh"
+# The binary carries the skill, the rules and the hook script, so it installs its own
+# setup. That is the same code path `aip update` runs, which is what keeps the two from
+# drifting apart.
+AIP=$(command -v aip 2>/dev/null || printf '%s' "$HOME/.cargo/bin/aip")
+say "Installing the skill, the always-on rules and the harness hooks"
+"$AIP" setup
+
+# MCP registration edits a TOML file and talks to the claude CLI, so it stays in shell.
+if [ -n "$here" ] && [ -f "$here/install/install-mcp.sh" ]; then
   sh "$here/install/install-mcp.sh"
-  say "Adding the always-on rules to your global charter"
-  aip rules install 2>/dev/null || "$HOME/.cargo/bin/aip" rules install
 else
-  curl -fsSL "https://zottiben.github.io/ai-planner/install-skill.sh" | sh
-  curl -fsSL "https://zottiben.github.io/ai-planner/install-hook.sh" | sh
   curl -fsSL "https://zottiben.github.io/ai-planner/install-mcp.sh" | sh
-  say "Adding the always-on rules to your global charter"
-  aip rules install 2>/dev/null || "$HOME/.cargo/bin/aip" rules install
 fi
 
 cat <<'EOF'
@@ -59,6 +59,10 @@ Done. Next:
   aip import --scan <worktree root>  # bring existing BUILD_PLAN / HANDOFF files in
   aip status                         # where you are
   aip doctor                         # check the setup
+
+Later:
+  aip update                         # rebuild from where it was installed, and refresh
+                                     # the skill, rules and hooks in one step
 
 Installed with --with-model? Build the semantic index once:
   aip embed

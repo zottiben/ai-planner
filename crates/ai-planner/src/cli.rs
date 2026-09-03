@@ -120,6 +120,12 @@ pub enum Command {
     /// Run the MCP server over stdio
     Serve(ServeArgs),
 
+    /// Install the skill, the always-on rules and the harness hooks
+    Setup(SetupArgs),
+
+    /// Rebuild aip from where it was installed, then refresh the setup
+    Update(UpdateArgs),
+
     /// Check the setup and point out anything that needs attention
     Doctor,
 
@@ -621,6 +627,28 @@ pub struct RulesInstallArgs {
     pub project: bool,
 
     /// Rewrite an existing block that has fallen behind
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SetupArgs {
+    /// Install into this repo instead of at user scope
+    #[arg(long)]
+    pub project: bool,
+
+    /// Rewrite the rules block even if one is already there
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct UpdateArgs {
+    /// Report whether an update is available and stop
+    #[arg(long)]
+    pub check: bool,
+
+    /// Rebuild even when already on the latest commit
     #[arg(long)]
     pub force: bool,
 }

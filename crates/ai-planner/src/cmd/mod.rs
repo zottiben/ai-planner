@@ -7,5 +7,7 @@ pub mod import;
 pub mod note;
 pub mod plan;
 pub mod rules;
+pub mod setup;
 pub mod slice;
 pub mod sync;
+pub mod update;

@@ -129,6 +129,46 @@ pub fn doctor(app: &mut App) -> Result<()> {
         ));
     }
 
+    // The half of an install that lives outside the binary, and so goes stale quietly.
+    let rules_installed = crate::rules::user_targets().iter().any(|(_, path)| {
+        std::fs::read_to_string(path)
+            .map(|t| t.contains(crate::rules::MARKER))
+            .unwrap_or(false)
+    });
+    if rules_installed {
+        checks.push(Check::Ok(
+            "the always-on rules are in the global charter".into(),
+        ));
+    } else {
+        checks.push(Check::Warn(
+            "the always-on rules are not in any global charter".into(),
+            "aip rules install".into(),
+        ));
+    }
+
+    let skills = crate::update::skill_targets(false);
+    let stale: Vec<String> = skills
+        .iter()
+        .map(|dir| dir.join("SKILL.md"))
+        .filter(|path| {
+            std::fs::read_to_string(path)
+                .map(|t| t != crate::update::SKILL)
+                .unwrap_or(true)
+        })
+        .map(|path| short_path(&path.to_string_lossy()))
+        .collect();
+    if stale.is_empty() {
+        checks.push(Check::Ok("the installed skill matches this binary".into()));
+    } else {
+        checks.push(Check::Warn(
+            format!(
+                "the skill is missing or out of date in {}",
+                stale.join(", ")
+            ),
+            "aip setup".into(),
+        ));
+    }
+
     let rows = app.store.search_rows()?;
     if rows == 0 {
         checks.push(Check::Warn(

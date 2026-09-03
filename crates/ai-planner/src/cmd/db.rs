@@ -60,15 +60,8 @@ fn backup(app: &App, out: Option<&std::path::Path>) -> Result<()> {
             src.with_file_name(name)
         }
     };
-    if dest.exists() {
-        anyhow::bail!("{} already exists", dest.display());
-    }
-    // VACUUM INTO takes a consistent copy while other agents are mid-write, which a
-    // plain file copy would not.
     app.store
-        .db()
-        .conn()
-        .execute("VACUUM INTO ?1", [dest.to_string_lossy()])
+        .backup(&dest)
         .with_context(|| format!("backing up to {}", dest.display()))?;
     ok(&format!("backed up to {}", dest.display()));
     Ok(())

@@ -72,6 +72,24 @@ impl Store {
         &mut self.db
     }
 
+    /// Copy the database to `dest`. `VACUUM INTO` takes a consistent snapshot while
+    /// other agents are mid-write, which a plain file copy would not.
+    pub fn backup(&self, dest: &Path) -> Result<()> {
+        if dest.exists() {
+            return Err(crate::error::Error::invalid(format!(
+                "{} already exists",
+                dest.display()
+            )));
+        }
+        if let Some(dir) = dest.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        self.db
+            .conn()
+            .execute("VACUUM INTO ?1", [dest.to_string_lossy()])?;
+        Ok(())
+    }
+
     pub fn path(&self) -> &Path {
         self.db.path()
     }
