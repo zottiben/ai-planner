@@ -3,6 +3,7 @@ mod cli;
 mod cmd;
 mod mcp;
 mod out;
+mod rules;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -41,11 +42,19 @@ fn run() -> Result<()> {
         return cmd::plan::init(cli.db.as_deref(), &cwd, args);
     }
 
+    // Writing the charter block touches no data, so it works before `aip init` -
+    // which matters, because installing the rules is part of setting the tool up.
+    if let Command::Rules(c) = &cli.command {
+        return cmd::rules::run(c);
+    }
+
     // A session-start hook runs in every session, including ones with nothing to do
     // with a plan. It must never fail the session, so it stays quiet about everything.
-    if let Command::Hook = &cli.command {
-        if let Ok(mut app) = App::open(cli.db.as_deref(), &cwd, cli.json) {
-            let _ = cmd::handoff::hook(&mut app, plan_ref);
+    if let Command::Hook(args) = &cli.command {
+        if let Ok(event) = cmd::handoff::HookEvent::parse(&args.event) {
+            if let Ok(mut app) = App::open(cli.db.as_deref(), &cwd, cli.json) {
+                let _ = cmd::handoff::hook(&mut app, event, plan_ref);
+            }
         }
         return Ok(());
     }
@@ -75,7 +84,9 @@ fn run() -> Result<()> {
         Command::Export(args) => cmd::import::export(&app, args, plan_ref),
         Command::Handoff(c) => cmd::handoff::run(&mut app, c, plan_ref),
         Command::Resume(args) => cmd::handoff::resume(&mut app, args, plan_ref),
-        Command::Hook => unreachable!("handled above"),
+        Command::Hook(_) => unreachable!("handled above"),
+        Command::Sync(args) => cmd::sync::sync(&mut app, args, plan_ref),
+        Command::Rules(_) => unreachable!("handled above"),
         Command::Serve(args) => serve(app, args),
         Command::Doctor => cmd::doctor::doctor(&mut app),
         Command::Repos => cmd::plan::repos(&app),

@@ -9,6 +9,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (1, "core", include_str!("migrations/001_core.sql")),
     (2, "search", include_str!("migrations/002_search.sql")),
     (3, "embedding", include_str!("migrations/003_embedding.sql")),
+    (4, "nudge", include_str!("migrations/004_nudge.sql")),
 ];
 
 /// One database for every repo and every worktree (D1). Override for tests, or for
@@ -162,12 +163,12 @@ mod tests {
         let path = tmp.path().join("p.db");
 
         let db = Db::open_or_create(&path).unwrap();
-        assert_eq!(db.schema_version().unwrap(), 3);
+        assert_eq!(db.schema_version().unwrap(), 4);
         assert_eq!(db.pending_migrations().unwrap(), 0);
         drop(db);
 
         let db = Db::open(&path).unwrap();
-        assert_eq!(db.schema_version().unwrap(), 3);
+        assert_eq!(db.schema_version().unwrap(), 4);
 
         let views: i64 = db
             .conn()

@@ -86,6 +86,129 @@ impl GitContext {
             .flatten()
             .is_some_and(|s| !s.trim().is_empty())
     }
+
+    /// The branch work lands on. Read from `origin/HEAD` when the remote has told us,
+    /// then guessed from the branches that actually exist - never assumed to be `main`,
+    /// because plenty of repos are still on `master`.
+    pub fn default_branch(&self) -> Option<String> {
+        let remote_head = git(
+            &self.worktree,
+            &["symbolic-ref", "refs/remotes/origin/HEAD"],
+        )
+        .ok()
+        .flatten();
+        if let Some(head) = remote_head {
+            if let Some(name) = head.rsplit('/').next() {
+                return Some(name.to_string());
+            }
+        }
+        for candidate in ["main", "master", "develop"] {
+            if self.branch_exists(candidate) {
+                return Some(candidate.to_string());
+            }
+        }
+        None
+    }
+
+    /// True if the branch exists locally or on the remote.
+    pub fn branch_exists(&self, branch: &str) -> bool {
+        for reference in [
+            format!("refs/heads/{branch}"),
+            format!("refs/remotes/origin/{branch}"),
+        ] {
+            let found = git(
+                &self.worktree,
+                &["rev-parse", "--verify", "--quiet", &reference],
+            )
+            .ok()
+            .flatten()
+            .is_some();
+            if found {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether `branch` is already contained in `into` - i.e. the work has landed.
+    /// Prefers the remote refs, since a local branch can lag a long way behind.
+    pub fn is_merged_into(&self, branch: &str, into: &str) -> bool {
+        let tip = |name: &str| -> Option<String> {
+            for reference in [
+                format!("refs/remotes/origin/{name}"),
+                format!("refs/heads/{name}"),
+            ] {
+                if let Ok(Some(sha)) = git(
+                    &self.worktree,
+                    &["rev-parse", "--verify", "--quiet", &reference],
+                ) {
+                    return Some(sha);
+                }
+            }
+            None
+        };
+        let (Some(from), Some(target)) = (tip(branch), tip(into)) else {
+            return false;
+        };
+        if from == target {
+            return false;
+        }
+        matches!(
+            std::process::Command::new("git")
+                .args(["merge-base", "--is-ancestor", &from, &target])
+                .current_dir(&self.worktree)
+                .status(),
+            Ok(status) if status.success()
+        )
+    }
+}
+
+/// A pull request as GitHub sees it. `None` everywhere when `gh` is missing or not
+/// authenticated, which is a normal state and not an error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequest {
+    pub number: i64,
+    pub url: String,
+    /// `OPEN`, `MERGED` or `CLOSED`.
+    pub state: String,
+}
+
+impl PullRequest {
+    pub fn merged(&self) -> bool {
+        self.state.eq_ignore_ascii_case("merged")
+    }
+
+    pub fn open(&self) -> bool {
+        self.state.eq_ignore_ascii_case("open")
+    }
+}
+
+/// Ask `gh` about the PR for a branch. Everything about this is best-effort: no `gh`,
+/// no network, or no PR all return `None` rather than failing a command.
+pub fn pull_request_for(cwd: &Path, branch: &str) -> Option<PullRequest> {
+    let out = Command::new("gh")
+        .args(["pr", "view", branch, "--json", "number,url,state"])
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    Some(PullRequest {
+        number: value.get("number")?.as_i64()?,
+        url: value.get("url")?.as_str()?.to_string(),
+        state: value.get("state")?.as_str()?.to_string(),
+    })
+}
+
+pub fn gh_available() -> bool {
+    Command::new("gh")
+        .args(["auth", "status"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 /// Run git and return trimmed stdout, or `None` when git exits non-zero (which for

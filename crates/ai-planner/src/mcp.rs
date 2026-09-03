@@ -311,6 +311,21 @@ schema_args! {
 }
 
 schema_args! {
+    struct SyncArgs {
+        /// Apply what git says instead of only reporting it. Defaults to false.
+        #[serde(default)]
+        fix: Option<bool>,
+        /// Skip the GitHub lookup and use branch history alone. Defaults to false.
+        #[serde(default)]
+        no_gh: Option<bool>,
+        #[serde(default)]
+        plan: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+    }
+}
+
+schema_args! {
     struct ImportArgs {
         /// Files or directories holding BUILD_PLAN / HANDOFF markdown.
         paths: Vec<String>,
@@ -940,6 +955,36 @@ impl PlannerServer {
                 })
                 .map_err(to_err)?,
         )
+    }
+
+    #[tool(
+        description = "Reconcile the plan against what git and GitHub already show: branches that have landed, PRs that are open or merged, claims on branches that no longer exist. Call this when you finish a slice or open a PR, and whenever a hook tells you the plan is out of step. Reports by default; pass fix=true to apply."
+    )]
+    async fn sync_plan(
+        &self,
+        Parameters(args): Parameters<SyncArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut store = self.store()?;
+        let (plan, git) = self.target(&store, args.cwd.as_ref(), args.plan.as_ref())?;
+        let use_gh = !args.no_gh.unwrap_or(false) && ai_planner_core::git::gh_available();
+        let findings = store.drift(plan.id, &git, use_gh).map_err(to_err)?;
+
+        let applied = if args.fix.unwrap_or(false) && !findings.is_empty() {
+            Some(store.apply_drift(plan.id, &findings).map_err(to_err)?)
+        } else {
+            None
+        };
+        json(&serde_json::json!({
+            "plan": plan.slug,
+            "used_gh": use_gh,
+            "in_sync": findings.is_empty(),
+            "findings": findings.iter().map(|f| serde_json::json!({
+                "slice": f.slice(),
+                "problem": f.describe(),
+                "remedy": f.remedy(),
+            })).collect::<Vec<_>>(),
+            "applied": applied.map(|r| r.applied),
+        }))
     }
 
     #[tool(

@@ -107,8 +107,15 @@ pub enum Command {
     /// Print what a fresh session needs to pick this up
     Resume(ResumeArgs),
 
-    /// One line of session-start context, as harness hook JSON
-    Hook,
+    /// Context for a harness hook, as hook JSON
+    Hook(HookArgs),
+
+    /// Reconcile the plan against what git and gh can see
+    Sync(SyncArgs),
+
+    /// The always-on instruction block for the global charter
+    #[command(subcommand)]
+    Rules(RulesCmd),
 
     /// Run the MCP server over stdio
     Serve(ServeArgs),
@@ -575,6 +582,53 @@ pub struct ExportArgs {
     /// Overwrite an existing file
     #[arg(long)]
     pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HookArgs {
+    /// session-start | user-prompt-submit | stop
+    #[arg(long, default_value = "session-start")]
+    pub event: String,
+}
+
+#[derive(Args, Debug)]
+pub struct SyncArgs {
+    /// Apply what git says instead of only reporting it
+    #[arg(long)]
+    pub fix: bool,
+
+    /// Skip the GitHub lookup and use branch history alone
+    #[arg(long)]
+    pub no_gh: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum RulesCmd {
+    /// Print the block
+    Show,
+    /// Add it to the global charter files, so it is always in context
+    Install(RulesInstallArgs),
+    /// Take it out again
+    Uninstall(RulesScopeArgs),
+    /// Which charter files have it
+    Status,
+}
+
+#[derive(Args, Debug)]
+pub struct RulesInstallArgs {
+    /// Write to ./AGENTS.md and ./CLAUDE.md instead of the global charters
+    #[arg(long)]
+    pub project: bool,
+
+    /// Rewrite an existing block that has fallen behind
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct RulesScopeArgs {
+    #[arg(long)]
+    pub project: bool,
 }
 
 #[derive(Args, Debug)]

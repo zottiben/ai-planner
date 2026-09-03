@@ -37,6 +37,25 @@ aip show            # the whole plan as markdown, exactly like the file it repla
 says which rule it used. If it cannot tell, it lists the candidates rather than
 guessing - pick one with `-p <plan>`, and it remembers for next time.
 
+## Keeping it true
+
+The plan drifting out of step with the work is the failure that matters. Two habits
+prevent it:
+
+- **Change the slice status as part of finishing the work**, not afterwards. A PR that
+  is open while the plan says `ready` makes the plan lie to the next session.
+- **`aip sync`** reconciles the git-observable facts - a branch that has landed, a PR
+  that opened or merged, a claim on a branch that no longer exists. `--fix` applies
+  them. Run it when you finish a slice or open a PR, and whenever a hook tells you the
+  plan is out of step.
+
+```sh
+aip sync            # what git and gh see that the plan does not
+aip sync --fix      # apply it
+```
+
+If a hook says the plan is out of step, fix it then - do not carry it to the next task.
+
 ## While building
 
 ```sh

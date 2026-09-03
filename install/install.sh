@@ -42,10 +42,14 @@ if [ -n "$here" ] && [ -f "$here/install/install-skill.sh" ]; then
   sh "$here/install/install-skill.sh"
   sh "$here/install/install-hook.sh"
   sh "$here/install/install-mcp.sh"
+  say "Adding the always-on rules to your global charter"
+  aip rules install 2>/dev/null || "$HOME/.cargo/bin/aip" rules install
 else
   curl -fsSL "https://zottiben.github.io/ai-planner/install-skill.sh" | sh
   curl -fsSL "https://zottiben.github.io/ai-planner/install-hook.sh" | sh
   curl -fsSL "https://zottiben.github.io/ai-planner/install-mcp.sh" | sh
+  say "Adding the always-on rules to your global charter"
+  aip rules install 2>/dev/null || "$HOME/.cargo/bin/aip" rules install
 fi
 
 cat <<'EOF'

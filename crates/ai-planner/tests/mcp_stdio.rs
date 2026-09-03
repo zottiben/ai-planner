@@ -212,6 +212,7 @@ fn the_server_exposes_the_whole_workflow_over_stdio() {
         "create_plan",
         "write_handoff",
         "import_markdown",
+        "sync_plan",
     ] {
         assert!(
             names.contains(&expected.to_string()),

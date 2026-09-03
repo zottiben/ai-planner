@@ -165,6 +165,10 @@ fn finishing_a_slice_stamps_it_and_writes_its_own_history() {
 
     let done = store.set_slice_status(&active, Status::Done, None).unwrap();
     assert!(done.completed_at.is_some());
+    // Finishing gives the worktree back, so a done slice never looks like work in
+    // progress - but where it was built stays readable.
+    assert!(done.claimed_by.is_none());
+    assert!(done.worktree_path.is_some() || active.worktree_path.is_none());
 
     let history = store.slice_log(done.id, None).unwrap();
     let bodies: Vec<&str> = history.iter().map(|l| l.body.as_str()).collect();
@@ -269,6 +273,54 @@ fn only_one_of_two_racing_agents_wins_a_claim() {
     assert!(fresh.worktree_path.is_some());
     // Claiming starts the work, so the slice is no longer merely "ready".
     assert_eq!(fresh.status, Status::Active);
+}
+
+#[test]
+fn claiming_fills_the_branch_in_but_never_overwrites_the_planned_one() {
+    let fx = Fixture::new();
+    let mut store = fx.store();
+    let plan = seed_plan(&mut store, fx.repo_id, "Picker");
+
+    // A slice the plan says is built on a particular branch.
+    let planned = store
+        .add_slice(NewSlice {
+            plan_id: plan.id,
+            key: "PR1".into(),
+            title: "Core".into(),
+            branch: Some("feat/picker".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    // Claimed from somewhere else entirely - which must not rewrite the plan, or the
+    // slice stops pointing at the work and drift detection goes blind.
+    let claimed = store.claim_slice(&planned, "/wt/1", Some("main")).unwrap();
+    assert_eq!(claimed.branch.as_deref(), Some("feat/picker"));
+
+    // A slice with no branch yet takes the one it was claimed on.
+    let blank = store
+        .add_slice(NewSlice {
+            plan_id: plan.id,
+            key: "PR2".into(),
+            title: "Variant".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let claimed = store
+        .claim_slice(&blank, "/wt/1", Some("feat/variant"))
+        .unwrap();
+    assert_eq!(claimed.branch.as_deref(), Some("feat/variant"));
+
+    // Changing it is possible, but only on purpose.
+    let moved = store
+        .update_slice(
+            &claimed,
+            ai_planner_core::SliceUpdate {
+                branch: Some("feat/renamed".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(moved.branch.as_deref(), Some("feat/renamed"));
 }
 
 #[test]

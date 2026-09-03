@@ -178,6 +178,13 @@ impl Store {
                      completed_at   = CASE WHEN ?2 = 'done' THEN ?4
                                            WHEN ?2 = 'deferred' THEN COALESCE(completed_at, ?4)
                                            ELSE NULL END,
+                     -- Finishing a slice gives the worktree back. Who built it stays
+                     -- readable in worktree_path and in the log; holding the claim
+                     -- would just make a finished slice look like work in progress.
+                     claimed_by     = CASE WHEN ?2 IN ('done','deferred') THEN NULL
+                                           ELSE claimed_by END,
+                     claimed_at     = CASE WHEN ?2 IN ('done','deferred') THEN NULL
+                                           ELSE claimed_at END,
                      updated_at     = ?4,
                      rev            = rev + 1
                  WHERE id = ?1",
@@ -259,7 +266,11 @@ impl Store {
                      claimed_by    = ?2,
                      claimed_at    = ?3,
                      worktree_path = ?4,
-                     branch        = COALESCE(?5, branch),
+                     -- Fill the branch in, never overwrite it: the plan may already
+                     -- say which branch this slice is built on, and claiming from
+                     -- somewhere else must not silently rewrite that. Use
+                     -- `slice edit --branch` to change it on purpose.
+                     branch        = COALESCE(branch, ?5),
                      status        = CASE WHEN status IN ('draft','ready') THEN 'active' ELSE status END,
                      started_at    = COALESCE(started_at, ?3),
                      updated_at    = ?3,

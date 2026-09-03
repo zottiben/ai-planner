@@ -30,6 +30,7 @@ That does four things:
 | `install-skill.sh` | the agent skill into `~/.claude/skills` and `~/.agents/skills` |
 | `install-hook.sh` | a session-start hook, merged into `~/.claude/settings.json` |
 | `install-mcp.sh` | the MCP server, registered with Claude Code, Codex and Pi |
+| `aip rules install` | the always-on rules block, appended to your global charter |
 
 Add `--with-model` for semantic search (see [step 6](#6-optional-search-by-meaning)).
 Each script runs standalone and takes `--project` to install into the current repo
@@ -79,6 +80,7 @@ aip slice ls
 aip slice claim PR2                  # take it for this worktree before you start
 aip slice set PR2 in_review
 aip log "PR2 gates green on abc1234." --slice PR2
+aip sync                             # what git says that the plan does not (--fix applies)
 aip decision add "One headless core, two shells" "The core carries all the logic."
 aip gotcha add "The Herd symlink is shared" "Repoint it, then put it back."
 ```
@@ -118,22 +120,39 @@ are imported and safe to delete.
 
 ---
 
+## Keeping the plan and the work in step
+
+The failure mode this has to survive is an agent forgetting the plan exists between
+tasks. Four mechanisms, because no single one is enough:
+
+| | What it catches |
+| --- | --- |
+| `aip rules install` | The agent not knowing the tool exists. Appends a marked block to `~/.claude/CLAUDE.md` and `~/.agents/AGENTS.md`, so the rules are always in context rather than waiting to be discovered like a skill. Idempotent; `--force` refreshes it, `uninstall` removes it. |
+| `UserPromptSubmit` hook | Forgetting *between tasks*. Injects one line - plan, slice, any drift - on every turn. A new task arrives as a new prompt, and `SessionStart` is long out of context by then. |
+| `Stop` hook | A turn ending with the plan stale. Fires only when something is demonstrably wrong, and deduplicates per state so it cannot become noise. |
+| `aip sync` | Everything the agent forgot anyway. Reconciles from git and `gh`: branches that have landed, PRs open or merged, claims on dead branches. `--fix` applies it. |
+
+The last one is the important one: the mechanical facts are observable, so the database
+reconciles itself rather than depending on anyone's memory. The hooks and the rules only
+have to cover the judgement calls - progress notes, decisions, gotchas - which nothing
+but the agent knows.
+
+`PreCompact` and `SessionEnd` are deliberately unused: neither can inject context, so a
+hook there could only block compaction, which is worse than saying nothing.
+
 ## Working with agents
 
-Three pieces, so an agent never has to be told about this:
-
-- **Session hook** - `aip hook` prints one line of context (plan, slice, next item,
-  whether a handoff is waiting) as harness hook JSON. Silent when there is nothing to
-  say, and it can never fail a session.
+- **Hooks** - `aip hook --event <session-start|user-prompt-submit|stop>` prints harness
+  hook JSON. Silent when there is nothing to say, and it can never fail a session.
 - **MCP server** - `aip serve` over stdio. Tools: `locate`, `get_plan`, `get_resume`,
   `search_plans`, `list_plans`, `list_slices`, `get_slice`, `claim_slice`,
   `release_slice`, `set_slice_status`, `update_slice`, `add_slice`, `append_log`,
   `add_decision`, `supersede_decision`, `add_gotcha`, `open_question`,
   `list_questions`, `answer_question`, `update_section`, `create_plan`,
-  `write_handoff`, `import_markdown`.
+  `write_handoff`, `import_markdown`, `sync_plan`.
 - **Skill** - tells the agent which tool to reach for, and not to write plan markdown.
 
-Codex and Pi: call `aip hook` from your own session-start hook; it prints the same JSON.
+Codex and Pi: call `aip hook --event …` from your own hooks; it prints the same JSON.
 
 ## Handoffs
 

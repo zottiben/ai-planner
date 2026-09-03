@@ -6,4 +6,6 @@ pub mod handoff;
 pub mod import;
 pub mod note;
 pub mod plan;
+pub mod rules;
 pub mod slice;
+pub mod sync;

@@ -1,9 +1,17 @@
 #!/usr/bin/env sh
-# Install the ai-planner session-start hook, so every new session is told which build
-# plan its worktree is on without being asked.
+# Install the ai-planner harness hooks, so a session is told about its build plan
+# without being asked, and is told when the plan has fallen out of step with the work.
 #
-# This is the piece that makes the tool seamless: a skill only fires once the agent
-# already suspects it needs one, but the hook arrives unprompted.
+# Three events, because one is not enough:
+#   SessionStart      - which plan this worktree is on, once at the start.
+#   UserPromptSubmit  - the same one-liner on every turn. This is the one that stops
+#                       the plan being forgotten between tasks: a new task arrives as
+#                       a new prompt, and SessionStart is long out of context by then.
+#   Stop              - at the end of a turn, only when the plan is demonstrably out
+#                       of step. Deduplicated per state, so it cannot become noise.
+#
+# PreCompact and SessionEnd are deliberately not used: neither can inject context, so
+# a hook there could only block, which is worse than saying nothing.
 #
 #   curl -fsSL https://zottiben.github.io/ai-planner/install-hook.sh | sh
 #
@@ -60,7 +68,7 @@ SETTINGS="$settings" HOOKCMD="$hookdir/ai-planner-session.sh" python3 <<'PY'
 import json, os, sys
 
 path = os.environ["SETTINGS"]
-cmd = os.environ["HOOKCMD"]
+script = os.environ["HOOKCMD"]
 
 try:
     with open(path) as f:
@@ -69,26 +77,43 @@ except (json.JSONDecodeError, FileNotFoundError):
     print(f"error: {path} is not valid JSON - not touching it.", file=sys.stderr)
     sys.exit(1)
 
+events = {
+    "SessionStart": f"{script} session-start",
+    "UserPromptSubmit": f"{script} user-prompt-submit",
+    "Stop": f"{script} stop",
+}
+
 hooks = data.setdefault("hooks", {})
-starts = hooks.setdefault("SessionStart", [])
+added, kept = [], []
+for event, cmd in events.items():
+    groups = hooks.setdefault(event, [])
+    # Match on the script, not the full command, so an older single-event install is
+    # upgraded in place rather than left behind as a duplicate.
+    existing = [
+        h
+        for group in groups
+        if isinstance(group, dict)
+        for h in group.get("hooks", [])
+        if isinstance(h, dict) and script in str(h.get("command", ""))
+    ]
+    if existing:
+        for h in existing:
+            h["command"] = cmd
+        kept.append(event)
+        continue
+    groups.append({"hooks": [{"type": "command", "command": cmd}]})
+    added.append(event)
 
-already = any(
-    h.get("command") == cmd
-    for group in starts
-    if isinstance(group, dict)
-    for h in group.get("hooks", [])
-    if isinstance(h, dict)
-)
-if already:
-    print("hook already registered")
-    sys.exit(0)
-
-starts.append({"hooks": [{"type": "command", "command": cmd}]})
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
-print("registered")
+
+if added:
+    print("registered: " + ", ".join(added))
+if kept:
+    print("already present (refreshed): " + ", ".join(kept))
 PY
 
 say "Wired into $settings"
-say "Codex and Pi: run \`aip hook\` from your own session-start hook - it prints the same JSON."
+say "Codex and Pi: run \`aip hook --event <session-start|user-prompt-submit|stop>\` from"
+say "your own hooks - it prints the same JSON."

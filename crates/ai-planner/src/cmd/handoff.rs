@@ -193,53 +193,172 @@ pub fn resume(app: &mut App, args: &ResumeArgs, plan_ref: Option<&str>) -> Resul
     Ok(())
 }
 
-/// One line of context for a session-start hook. Silent when there is nothing useful
-/// to say, so it never adds noise to an unrelated session.
-pub fn hook(app: &mut App, plan_ref: Option<&str>) -> Result<()> {
+/// Which harness event this hook output is for. The three differ in what they can do:
+/// `SessionStart` and `UserPromptSubmit` can inject context, `Stop` can inject *and*
+/// continues the turn, and `PreCompact`/`SessionEnd` can do neither - which is why
+/// there is no variant for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookEvent {
+    SessionStart,
+    UserPromptSubmit,
+    Stop,
+}
+
+impl HookEvent {
+    pub fn parse(s: &str) -> Result<HookEvent> {
+        Ok(match s.trim().to_lowercase().replace(['-', '_'], "") {
+            ref v if v == "sessionstart" || v.is_empty() => HookEvent::SessionStart,
+            ref v if v == "userpromptsubmit" || v == "prompt" => HookEvent::UserPromptSubmit,
+            ref v if v == "stop" => HookEvent::Stop,
+            other => anyhow::bail!(
+                "unknown hook event {other:?} - use session-start, user-prompt-submit or stop"
+            ),
+        })
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            HookEvent::SessionStart => "SessionStart",
+            HookEvent::UserPromptSubmit => "UserPromptSubmit",
+            HookEvent::Stop => "Stop",
+        }
+    }
+}
+
+/// Context for a harness hook. Silent whenever there is nothing worth saying, so it
+/// never adds noise to an unrelated session or a turn where the plan is already true.
+pub fn hook(app: &mut App, event: HookEvent, plan_ref: Option<&str>) -> Result<()> {
     let git = match &app.git {
         Some(g) => g.clone(),
         None => return Ok(()),
     };
-    let resolved = app.store.resolve(Some(&git), plan_ref)?;
-    let Ok(resolution) = resolved else {
+    let Ok(resolution) = app.store.resolve(Some(&git), plan_ref)? else {
         return Ok(());
     };
 
-    let plan = &resolution.plan;
+    let plan = resolution.plan.clone();
+    let worktree = git.worktree_str();
     let slices = app.store.slices(plan.id)?;
     let done = slices.iter().filter(|s| s.status == Status::Done).count();
-    let worktree = git.worktree_str();
 
-    let mut line = format!(
-        "Build plan: {} - {} ({}), {done}/{} slices done.",
-        plan.slug,
-        plan.title,
-        plan.status,
-        slices.len()
-    );
-    if let Some(on) = &resolution.slice {
-        line.push_str(&format!(" On {} ({}).", on.key, on.status));
-    }
-    if let Some(next) = app.store.next_slice(plan.id, Some(&worktree))? {
-        if Some(next.key.as_str()) != resolution.slice.as_ref().map(|s| s.key.as_str()) {
-            line.push_str(&format!(" Next: {} - {}.", next.key, next.title));
+    // Reconciled from git only, never from gh: a hook must not make a network call on
+    // every turn.
+    let findings = app.store.drift(plan.id, &git, false)?;
+    let unlogged = app.store.unlogged_claims(plan.id, &worktree)?;
+
+    let context = match event {
+        HookEvent::SessionStart => {
+            let mut line = format!(
+                "Build plan: {} - {} ({}), {done}/{} slices done.",
+                plan.slug,
+                plan.title,
+                plan.status,
+                slices.len()
+            );
+            if let Some(on) = resolution
+                .slice
+                .as_ref()
+                .filter(|s| !s.status.is_terminal())
+            {
+                line.push_str(&format!(" On {} ({}).", on.key, on.status));
+            }
+            if let Some(next) = app.store.next_slice(plan.id, Some(&worktree))? {
+                if Some(next.key.as_str()) != resolution.slice.as_ref().map(|s| s.key.as_str()) {
+                    line.push_str(&format!(" Next: {} - {}.", next.key, next.title));
+                }
+            }
+            let open = app.store.questions(plan.id, true)?.len();
+            if open > 0 {
+                line.push_str(&format!(" {open} open question(s)."));
+            }
+            if app.store.latest_handoff(plan.id, &worktree)?.is_some() {
+                line.push_str(
+                    " A handoff exists for this worktree - run `aip resume` before starting.",
+                );
+            }
+            if !findings.is_empty() {
+                line.push_str(&format!(
+                    " {} slice(s) out of sync with git - run `aip sync`.",
+                    findings.len()
+                ));
+            }
+            line.push_str(" Use `aip status`, `aip show`, `aip log`, `aip slice set`.");
+            Some(line)
         }
-    }
-    let open = app.store.questions(plan.id, true)?.len();
-    if open > 0 {
-        line.push_str(&format!(" {open} open question(s)."));
-    }
-    if app.store.latest_handoff(plan.id, &worktree)?.is_some() {
-        line.push_str(" A handoff exists for this worktree - run `aip resume` before starting.");
-    }
-    line.push_str(" Use `aip status`, `aip show`, `aip log`, `aip slice set`.");
 
+        // Fires on every user turn, which is the seam a new task arrives through and
+        // exactly where the plan gets forgotten. Kept to one line so repeating it is
+        // cheap, and it always names the slice so the agent has a key to act on.
+        HookEvent::UserPromptSubmit => {
+            let mut line = format!("Build plan {}", plan.slug);
+            let on = resolution
+                .slice
+                .as_ref()
+                .filter(|s| !s.status.is_terminal());
+            match on {
+                Some(on) => line.push_str(&format!(", on {} ({})", on.key, on.status)),
+                None => match app.store.next_slice(plan.id, Some(&worktree))? {
+                    Some(next) => line.push_str(&format!(", next {} ({})", next.key, next.status)),
+                    None => line.push_str(", nothing in progress"),
+                },
+            }
+            line.push_str(&format!(", {done}/{} done.", slices.len()));
+            if !findings.is_empty() {
+                line.push_str(&format!(
+                    " Out of sync: {}. Run `aip sync --fix`.",
+                    findings
+                        .iter()
+                        .map(|f| f.describe())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                ));
+            }
+            line.push_str(" Record progress with `aip log` and status with `aip slice set`.");
+            Some(line)
+        }
+
+        // End of a turn: the moment work has just finished and the plan is most likely
+        // to be stale. Only speaks when something is demonstrably wrong, and only once
+        // per state, because injecting here continues the turn.
+        HookEvent::Stop => {
+            let mut parts: Vec<String> = findings.iter().map(|f| f.describe()).collect();
+            for slice in &unlogged {
+                parts.push(format!(
+                    "{} is claimed here with no progress note since it was claimed",
+                    slice.key
+                ));
+            }
+            if parts.is_empty() {
+                None
+            } else {
+                let body = format!(
+                    "The build plan {} is out of step with the work: {}. Bring it up to date \
+                     now - `aip sync --fix` for the git-observable parts, `aip log \"…\" \
+                     --slice <key>` for what only you know, `aip slice set <key> <status>` for \
+                     the status. Do not leave this for the next session.",
+                    plan.slug,
+                    parts.join("; ")
+                );
+                // Say it once per distinct state, or a per-turn hook becomes noise the
+                // model learns to skip.
+                if app.store.take_nudge(&worktree, "stop", &body)? {
+                    Some(body)
+                } else {
+                    None
+                }
+            }
+        }
+    };
+
+    let Some(context) = context else {
+        return Ok(());
+    };
     println!(
         "{}",
         serde_json::json!({
             "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": line,
+                "hookEventName": event.name(),
+                "additionalContext": context,
             }
         })
     );

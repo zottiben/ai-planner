@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# SessionStart: tell the session which build plan this worktree is on.
+# Harness hook: tell the session about the build plan for this worktree.
+#
+# Takes the event as $1 - session-start (default), user-prompt-submit or stop. One
+# script serves all three so the settings.json entries stay stable.
 #
 # Cross-harness: resolves the project dir from the payload's `cwd` (Codex) or
 # ${CLAUDE_PROJECT_DIR} (Claude Code), falling back to the current directory.
@@ -19,6 +22,8 @@ except Exception: pass' 2>/dev/null)
 fi
 : "${proj:=${CLAUDE_PROJECT_DIR:-.}}"
 
+event="${1:-session-start}"
+
 command -v aip >/dev/null 2>&1 || exit 0
-aip -C "$proj" hook 2>/dev/null || true
+aip -C "$proj" hook --event "$event" 2>/dev/null || true
 exit 0
