@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 
 use crate::app::App;
 use crate::cli::*;
+use crate::md;
 use crate::out::{bold, dim, ok, status_colour, Table};
 use crate::read_body;
 
@@ -124,6 +125,8 @@ pub fn ls(app: &App, args: &LsArgs) -> Result<()> {
 pub fn show(app: &App, args: &ShowArgs, plan_ref: Option<&str>) -> Result<()> {
     let plan = app.plan(args.plan.as_deref().or(plan_ref))?;
 
+    // `--raw` is the source file byte for byte, which is the one thing rendering
+    // would take away.
     if args.raw {
         match app.store.raw_md(plan.id)? {
             Some(raw) => print!("{raw}"),
@@ -140,7 +143,7 @@ pub fn show(app: &App, args: &ShowArgs, plan_ref: Option<&str>) -> Result<()> {
         if app.json {
             println!("{}", serde_json::to_string_pretty(&section)?);
         } else {
-            println!("{}", section.body);
+            md::print(app.markdown, &section.body);
         }
         return Ok(());
     }
@@ -148,8 +151,10 @@ pub fn show(app: &App, args: &ShowArgs, plan_ref: Option<&str>) -> Result<()> {
     let bundle = app.store.bundle(plan.id)?;
     if app.json {
         println!("{}", serde_json::to_string_pretty(&bundle)?);
+    } else if args.page {
+        md::print_paged(app.markdown, &render_plan(&bundle));
     } else {
-        println!("{}", render_plan(&bundle));
+        md::print(app.markdown, &render_plan(&bundle));
     }
     Ok(())
 }

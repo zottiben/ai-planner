@@ -3,16 +3,21 @@ use std::path::{Path, PathBuf};
 use ai_planner_core::{default_db_path, GitContext, Plan, Repo, Store};
 use anyhow::{Context, Result};
 
+use crate::md::Mode;
+
 /// Everything a command needs: the database, and where the caller is standing.
 pub struct App {
     pub store: Store,
     pub git: Option<GitContext>,
     pub repo: Option<Repo>,
     pub json: bool,
+    /// How this process prints a markdown document, decided once from the flags and
+    /// the terminal rather than per command.
+    pub markdown: Mode,
 }
 
 impl App {
-    pub fn open(db: Option<&Path>, cwd: &Path, json: bool) -> Result<App> {
+    pub fn open(db: Option<&Path>, cwd: &Path, json: bool, markdown: Mode) -> Result<App> {
         let path = db.map(Path::to_path_buf).unwrap_or_else(default_db_path);
         let store = Store::open(&path).with_context(|| format!("opening {}", path.display()))?;
         let git = GitContext::detect(cwd).ok();
@@ -25,6 +30,7 @@ impl App {
             git,
             repo,
             json,
+            markdown,
         })
     }
 

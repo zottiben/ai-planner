@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod cmd;
 mod mcp;
+mod md;
 mod out;
 mod rules;
 mod update;
@@ -37,6 +38,7 @@ fn run() -> Result<()> {
         None => std::env::current_dir().context("reading the working directory")?,
     };
     let plan_ref = cli.plan.as_deref();
+    let markdown = md::Mode::detect(cli.plain, cli.json);
 
     // `init` is the one command that may create the database.
     if let Command::Init(args) = &cli.command {
@@ -57,15 +59,17 @@ fn run() -> Result<()> {
     // A session-start hook runs in every session, including ones with nothing to do
     // with a plan. It must never fail the session, so it stays quiet about everything.
     if let Command::Hook(args) = &cli.command {
+        // Hook output is read by a harness, never by eyes, so it stays plain even
+        // when the session that spawned it has a terminal attached.
         if let Ok(event) = cmd::handoff::HookEvent::parse(&args.event) {
-            if let Ok(mut app) = App::open(cli.db.as_deref(), &cwd, cli.json) {
+            if let Ok(mut app) = App::open(cli.db.as_deref(), &cwd, cli.json, md::Mode::Plain) {
                 let _ = cmd::handoff::hook(&mut app, event, plan_ref);
             }
         }
         return Ok(());
     }
 
-    let mut app = App::open(cli.db.as_deref(), &cwd, cli.json)?;
+    let mut app = App::open(cli.db.as_deref(), &cwd, cli.json, markdown)?;
 
     match &cli.command {
         Command::Init(_) => unreachable!("handled above"),

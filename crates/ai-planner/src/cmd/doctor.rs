@@ -10,6 +10,9 @@ use crate::out::{colour, dim};
 enum Check {
     Ok(String),
     Warn(String, String),
+    /// Something worth knowing that is nobody's fault - an optional part that is not
+    /// installed. It does not count towards the things to look at.
+    Note(String),
 }
 
 pub fn doctor(app: &mut App) -> Result<()> {
@@ -169,6 +172,18 @@ pub fn doctor(app: &mut App) -> Result<()> {
         ));
     }
 
+    // How a plan will look when you print one. Optional, so a missing gum is a note
+    // rather than a fault - but a silent fallback to plain markdown is confusing
+    // enough to be worth saying out loud.
+    match gum_version() {
+        Some(version) => checks.push(Check::Ok(format!(
+            "plans render through gum {version} on a terminal"
+        ))),
+        None => checks.push(Check::Note(
+            "gum is not installed - plans print as plain markdown (brew install gum)".into(),
+        )),
+    }
+
     let rows = app.store.search_rows()?;
     if rows == 0 {
         checks.push(Check::Warn(
@@ -190,6 +205,7 @@ pub fn doctor(app: &mut App) -> Result<()> {
                 println!("{} {msg}", cross());
                 println!("  {}", dim(fix));
             }
+            Check::Note(msg) => println!("{} {}", dim("·"), dim(msg)),
         }
     }
     println!();
@@ -207,6 +223,19 @@ fn tick() -> String {
     } else {
         "ok  ".into()
     }
+}
+
+/// The version gum reports, or nothing if it is not on the PATH.
+fn gum_version() -> Option<String> {
+    let out = std::process::Command::new("gum")
+        .arg("--version")
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.split_whitespace().last().map(str::to_string)
 }
 
 fn cross() -> String {

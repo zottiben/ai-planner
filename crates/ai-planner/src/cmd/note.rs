@@ -1,8 +1,11 @@
+use std::fmt::Write as _;
+
 use ai_planner_core::{DecisionStatus, LogKind, NewDecision, NewLog};
 use anyhow::Result;
 
 use crate::app::App;
 use crate::cli::*;
+use crate::md;
 use crate::out::{dim, ok, Table};
 use crate::read_body;
 
@@ -188,12 +191,14 @@ pub fn gotcha(app: &mut App, cmd: &GotchaCmd, plan_ref: Option<&str>) -> Result<
                 println!("{}", dim("no gotchas recorded"));
                 return Ok(());
             }
+            let mut out = String::new();
             for g in gotchas {
-                println!("## {}\n", g.title);
+                let _ = writeln!(out, "## {}\n", g.title);
                 if !g.body.trim().is_empty() {
-                    println!("{}\n", g.body.trim_end());
+                    let _ = writeln!(out, "{}\n", g.body.trim_end());
                 }
             }
+            md::print(app.markdown, &out);
             Ok(())
         }
     }

@@ -30,6 +30,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// Print markdown as markdown, without rendering it through gum
+    #[arg(long, global = true)]
+    pub plain: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -272,6 +276,10 @@ pub struct ShowArgs {
     /// The markdown this plan was imported from, byte for byte
     #[arg(long)]
     pub raw: bool,
+
+    /// Scroll it in a pager instead of printing it
+    #[arg(long, short = 'P')]
+    pub page: bool,
 }
 
 #[derive(Args, Debug)]

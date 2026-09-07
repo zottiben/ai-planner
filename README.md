@@ -38,6 +38,9 @@ Add `--with-model` for semantic search (see [step 6](#6-optional-search-by-meani
 Each script runs standalone and takes `--project` to install into the current repo
 instead of user-wide.
 
+`brew install gum` is optional and makes `aip show` render the plan instead of printing
+raw markdown at you.
+
 Behind a TLS-intercepting proxy, `export CARGO_NET_GIT_FETCH_WITH_CLI=true` first.
 
 ### 2. Register your repo
@@ -86,6 +89,13 @@ aip sync                             # what git says that the plan does not (--f
 aip decision add "One headless core, two shells" "The core carries all the logic."
 aip gotcha add "The Herd symlink is shared" "Repoint it, then put it back."
 ```
+
+On a terminal, `aip show` hands the document to
+[gum](https://github.com/charmbracelet/gum) - headings, tables and code spans styled -
+and `aip show -P` scrolls it in a pager with `/` to search. Behind a pipe, a redirect,
+`--json` or `NO_COLOR` it is the plain markdown again, byte for byte, because that is
+what an agent reads. `--plain` forces that anywhere, `AI_PLANNER_MARKDOWN=always`
+forces the other way, and no gum installed simply means plain markdown.
 
 ### 5. Browse it
 
@@ -224,6 +234,7 @@ to resume something or to begin it. Every status change writes a log row.
 | Database | `$AI_PLANNER_DB`, else `$XDG_DATA_HOME/ai-planner/planner.db`, else `~/.ai-planner/planner.db` |
 | Model cache | `$AI_PLANNER_MODEL_CACHE`, else `~/.cache/ai-planner/fastembed` |
 | Actor in the log | `$AI_PLANNER_ACTOR`, else `$USER` |
+| Markdown rendering | `$AI_PLANNER_MARKDOWN` = `auto` (default), `always`, `never`; theme from gum's own `$GUM_FORMAT_THEME` |
 
 One database for every repo - that is what lets four worktrees share a plan with no
 setup. `aip db backup` takes a consistent copy while agents are writing.

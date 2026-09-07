@@ -5,6 +5,7 @@ use anyhow::Result;
 use crate::app::App;
 use crate::cli::{HandoffCmd, ResumeArgs};
 use crate::cmd::slice::short_path;
+use crate::md;
 use crate::out::{bold, dim, ok};
 use crate::read_body;
 
@@ -164,19 +165,19 @@ fn ls(app: &App, plan_ref: Option<&str>) -> Result<()> {
 pub fn resume(app: &mut App, args: &ResumeArgs, plan_ref: Option<&str>) -> Result<()> {
     let plan = app.plan(plan_ref)?;
     let worktree = app.git.as_ref().map(|g| g.worktree_str());
-    let md = app.store.render_resume(plan.id, worktree.as_deref())?;
+    let resume_md = app.store.render_resume(plan.id, worktree.as_deref())?;
 
     if app.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "plan": plan.slug,
-                "resume_md": md,
+                "resume_md": resume_md,
             }))?
         );
         return Ok(());
     }
-    print!("{md}");
+    md::print(app.markdown, &resume_md);
 
     // Picking the work back up is the point, so offer to claim it in one step.
     if args.claim {
