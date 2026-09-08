@@ -213,6 +213,7 @@ fn the_server_exposes_the_whole_workflow_over_stdio() {
         "write_handoff",
         "import_markdown",
         "sync_plan",
+        "delete_plan",
     ] {
         assert!(
             names.contains(&expected.to_string()),
@@ -438,4 +439,142 @@ fn importing_defaults_to_a_dry_run() {
     assert_eq!(plans.as_array().unwrap().len(), 1);
     // Import never removes the source file.
     assert!(file.exists());
+}
+
+/// Deleting is the one call that cannot be undone, so a loose reference must not be
+/// enough to make it happen.
+#[test]
+fn a_plan_is_only_deleted_when_the_caller_names_it_exactly() {
+    let fx = fixture();
+    let mut s = Server::start(&fx.db, &fx.repo);
+
+    s.call(
+        "create_plan",
+        serde_json::json!({ "title": "ACME-1234 - Reusable Date Range Picker" }),
+    );
+    s.call(
+        "create_plan",
+        serde_json::json!({ "title": "ACME-9999 - Canvas Editor" }),
+    );
+    s.call(
+        "add_slice",
+        serde_json::json!({ "key": "PR1", "title": "Canvas", "plan": "acme-9999" }),
+    );
+    s.call(
+        "append_log",
+        serde_json::json!({ "body": "Grounded.", "plan": "acme-9999" }),
+    );
+
+    // A title fragment finds the plan, but the wrong slug stops the delete dead.
+    let err = s.call_err(
+        "delete_plan",
+        serde_json::json!({ "plan": "Canvas Editor", "confirm": "acme-1234" }),
+    );
+    assert!(err.contains("pass the exact slug"), "{err}");
+    assert_eq!(
+        s.call("list_plans", serde_json::json!({}))
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    // A dry run reports the size of it and deletes nothing.
+    let preview = s.call(
+        "delete_plan",
+        serde_json::json!({
+            "plan": "Canvas Editor", "confirm": "acme-9999", "dry_run": true
+        }),
+    );
+    assert_eq!(preview["deleted"], false);
+    assert_eq!(preview["plan"]["slices"], 1);
+    assert!(preview["plan"]["log_entries"].as_i64().unwrap() >= 1);
+    assert_eq!(
+        s.call("list_plans", serde_json::json!({}))
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let done = s.call(
+        "delete_plan",
+        serde_json::json!({ "plan": "acme-9999", "confirm": "acme-9999" }),
+    );
+    assert_eq!(done["deleted"], true);
+    assert_eq!(done["plan"]["slug"], "acme-9999");
+
+    let left = s.call("list_plans", serde_json::json!({}));
+    assert_eq!(left.as_array().unwrap().len(), 1);
+    assert_eq!(left[0]["slug"], "acme-1234");
+
+    // The plan is gone from the search index with it, not only from the table.
+    let hits = s.call("search_plans", serde_json::json!({ "query": "Canvas" }));
+    assert!(hits.as_array().unwrap().is_empty(), "{hits}");
+
+    // Deleting it again is an error, not a silent success.
+    let err = s.call_err(
+        "delete_plan",
+        serde_json::json!({ "plan": "acme-9999", "confirm": "acme-9999" }),
+    );
+    assert!(err.contains("no plan matching"), "{err}");
+}
+
+/// A slice another worktree holds is live work; taking the plan out from under it
+/// has to be asked for twice.
+#[test]
+fn deleting_a_plan_another_worktree_holds_is_refused_until_it_is_forced() {
+    let fx = fixture();
+    let mut first = Server::start(&fx.db, &fx.repo);
+    first.call(
+        "create_plan",
+        serde_json::json!({ "title": "Canvas Editor" }),
+    );
+    first.call(
+        "add_slice",
+        serde_json::json!({ "key": "S1", "title": "Canvas" }),
+    );
+    first.call("claim_slice", serde_json::json!({ "key": "S1" }));
+
+    let other = fx._dir.path().join("wt2");
+    git(
+        &fx.repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feat/x",
+            other.to_str().unwrap(),
+        ],
+    );
+    let mut second = Server::start(&fx.db, &other);
+
+    let err = second.call_err(
+        "delete_plan",
+        serde_json::json!({ "plan": "canvas-editor", "confirm": "canvas-editor" }),
+    );
+    assert!(err.contains("claimed in another worktree"), "{err}");
+    assert_eq!(
+        second
+            .call("list_plans", serde_json::json!({}))
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let done = second.call(
+        "delete_plan",
+        serde_json::json!({
+            "plan": "canvas-editor", "confirm": "canvas-editor", "force": true
+        }),
+    );
+    assert_eq!(done["deleted"], true);
+    assert_eq!(done["plan"]["held"][0]["key"], "S1");
+    assert!(second
+        .call("list_plans", serde_json::json!({}))
+        .as_array()
+        .unwrap()
+        .is_empty());
 }

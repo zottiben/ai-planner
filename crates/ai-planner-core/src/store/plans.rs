@@ -1,4 +1,5 @@
 use rusqlite::{params, OptionalExtension, Row};
+use serde::{Deserialize, Serialize};
 
 use super::Store;
 use crate::error::{Error, Result};
@@ -30,6 +31,39 @@ pub struct PlanFilter {
     pub repo_id: Option<i64>,
     pub statuses: Vec<Status>,
     pub query: Option<String>,
+}
+
+/// Everything one plan owns, counted. Deleting a plan is the one irreversible write in
+/// the tool, so the caller is handed the size of it before and after rather than a
+/// bare row count.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanRemoval {
+    pub plan_id: i64,
+    pub slug: String,
+    pub title: String,
+    pub repo: String,
+    pub status: Status,
+    pub sections: i64,
+    pub slices: i64,
+    pub decisions: i64,
+    pub questions: i64,
+    pub gotchas: i64,
+    pub log_entries: i64,
+    pub handoffs: i64,
+    pub sources: i64,
+    pub imports: i64,
+    pub embeddings: i64,
+    /// Slices somebody is still holding. Live work, and the reason to hesitate.
+    pub held: Vec<HeldSlice>,
+    /// Files this plan was imported from. The stored copy of them goes too.
+    pub imported_from: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeldSlice {
+    pub key: String,
+    pub claimed_by: String,
+    pub worktree_path: String,
 }
 
 /// A patch over a plan's header. `None` leaves a field alone.
@@ -321,6 +355,142 @@ impl Store {
             Ok(())
         })?;
         self.get_plan(id)
+    }
+
+    /// What deleting this plan would destroy. Counted separately from the delete so a
+    /// caller can show it first, and returned by the delete so it can report what
+    /// actually went.
+    pub fn plan_removal(&self, plan: &Plan) -> Result<PlanRemoval> {
+        let conn = self.db.conn();
+        let counts: [i64; 10] = conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM plan_section WHERE plan_id = ?1),
+                    (SELECT COUNT(*) FROM slice        WHERE plan_id = ?1),
+                    (SELECT COUNT(*) FROM decision     WHERE plan_id = ?1),
+                    (SELECT COUNT(*) FROM question     WHERE plan_id = ?1),
+                    (SELECT COUNT(*) FROM gotcha       WHERE plan_id = ?1),
+                    (SELECT COUNT(*) FROM log          WHERE plan_id = ?1),
+                    (SELECT COUNT(*) FROM handoff      WHERE plan_id = ?1),
+                    (SELECT COUNT(*) FROM plan_source  WHERE plan_id = ?1),
+                    (SELECT COUNT(*) FROM plan_import  WHERE plan_id = ?1),
+                    (SELECT COUNT(*) FROM embedding    WHERE plan_id = ?1)",
+            [plan.id],
+            |r| {
+                let mut out = [0i64; 10];
+                for (i, slot) in out.iter_mut().enumerate() {
+                    *slot = r.get(i)?;
+                }
+                Ok(out)
+            },
+        )?;
+
+        let held = {
+            let mut stmt = conn.prepare(
+                "SELECT key, COALESCE(claimed_by, ''), COALESCE(worktree_path, '')
+                 FROM slice WHERE plan_id = ?1 AND claimed_by IS NOT NULL
+                 ORDER BY ord, key",
+            )?;
+            let rows = stmt.query_map([plan.id], |r| {
+                Ok(HeldSlice {
+                    key: r.get(0)?,
+                    claimed_by: r.get(1)?,
+                    worktree_path: r.get(2)?,
+                })
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        let mut imported_from = {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT source_path FROM plan_import WHERE plan_id = ?1
+                 ORDER BY source_path",
+            )?;
+            let rows = stmt.query_map([plan.id], |r| r.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        if let Some(path) = &plan.source_path {
+            if !imported_from.iter().any(|p| p == path) {
+                imported_from.push(path.clone());
+            }
+        }
+
+        Ok(PlanRemoval {
+            plan_id: plan.id,
+            slug: plan.slug.clone(),
+            title: plan.title.clone(),
+            repo: plan.repo_name.clone(),
+            status: plan.status,
+            sections: counts[0],
+            slices: counts[1],
+            decisions: counts[2],
+            questions: counts[3],
+            gotchas: counts[4],
+            log_entries: counts[5],
+            handoffs: counts[6],
+            sources: counts[7],
+            imports: counts[8],
+            embeddings: counts[9],
+            held,
+            imported_from,
+        })
+    }
+
+    /// Delete a plan and everything hanging off it.
+    ///
+    /// The only irreversible write in the tool, so it refuses while another worktree
+    /// is holding a slice unless `force` says otherwise: a plan is shared, and the
+    /// agent deleting it is rarely the only one on it. `worktree` is the caller's own
+    /// path - work it holds itself is its own to throw away.
+    pub fn delete_plan(
+        &mut self,
+        plan: &Plan,
+        force: bool,
+        worktree: Option<&str>,
+    ) -> Result<PlanRemoval> {
+        let removal = self.plan_removal(plan)?;
+        if !force {
+            let elsewhere: Vec<&HeldSlice> = removal
+                .held
+                .iter()
+                .filter(|h| Some(h.worktree_path.as_str()) != worktree)
+                .collect();
+            if !elsewhere.is_empty() {
+                let detail = elsewhere
+                    .iter()
+                    .take(3)
+                    .map(|h| format!("{} by {} in {}", h.key, h.claimed_by, h.worktree_path))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(Error::PlanIsHeld(
+                    plan.slug.clone(),
+                    elsewhere.len(),
+                    detail,
+                ));
+            }
+        }
+
+        let id = plan.id;
+        let gone = self.db.write(|tx| {
+            // Every child table cascades from `plan`, but the FTS5 index has no
+            // foreign keys, so its rows have to go by hand or a deleted plan keeps
+            // answering searches.
+            tx.execute("DELETE FROM search WHERE plan_id = ?1", [id])?;
+            let gone = tx.execute("DELETE FROM plan WHERE id = ?1", [id])?;
+            // The two index counters are what `aip doctor` and `find` read to decide
+            // whether an index is built, so they are recomputed rather than adjusted.
+            tx.execute(
+                "UPDATE search_state SET rows = (SELECT COUNT(*) FROM search) WHERE id = 1",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE embedding_state SET rows = (SELECT COUNT(*) FROM embedding) WHERE id = 1",
+                [],
+            )?;
+            Ok(gone)
+        })?;
+        if gone == 0 {
+            return Err(Error::NoSuchPlan(plan.slug.clone()));
+        }
+        Ok(removal)
     }
 
     pub fn raw_md(&self, plan_id: i64) -> Result<Option<String>> {

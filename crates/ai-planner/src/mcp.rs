@@ -279,6 +279,25 @@ schema_args! {
 }
 
 schema_args! {
+    struct DeletePlanArgs {
+        /// Which plan: slug, ticket key or id. Never inferred from the worktree - a
+        /// delete has to name its target.
+        plan: String,
+        /// The target plan's exact slug, repeated back. The call is refused unless it
+        /// matches, so a loose reference cannot take the wrong plan with it.
+        confirm: String,
+        /// Report what would go and delete nothing. Defaults to false.
+        #[serde(default)]
+        dry_run: Option<bool>,
+        /// Delete even while another worktree holds one of its slices. Defaults to false.
+        #[serde(default)]
+        force: Option<bool>,
+        #[serde(default)]
+        cwd: Option<String>,
+    }
+}
+
+schema_args! {
     struct ListPlansArgs {
         /// Every repo, not just the one you are in.
         #[serde(default)]
@@ -914,6 +933,49 @@ impl PlannerServer {
             )
             .map_err(to_err)?;
         json(&created)
+    }
+
+    #[tool(
+        description = "Delete a plan and everything on it - slices, decisions, progress notes, gotchas, questions, handoffs. Irreversible, and not how work is finished: set the plan to done for that. Use it to clear a plan away so a task can be run again from scratch, or to remove one raised by mistake. Name the plan and repeat its exact slug back in `confirm`; call it with dry_run first to see what would go."
+    )]
+    async fn delete_plan(
+        &self,
+        Parameters(args): Parameters<DeletePlanArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut store = self.store()?;
+        let git = self.git(args.cwd.as_ref()).ok();
+        let repo_id = git
+            .as_ref()
+            .and_then(|g| store.find_repo(&g.repo_key).ok().flatten())
+            .map(|r| r.id);
+        let plan = store.find_plan(&args.plan, repo_id).map_err(to_err)?;
+
+        // `plan` may be a loose reference; `confirm` has to be the slug it landed on,
+        // so a fuzzy match that found the wrong plan is refused rather than deleted.
+        if args.confirm.trim() != plan.slug {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "{:?} resolves to {:?} ({}), but confirm said {:?} - pass the exact slug",
+                    args.plan, plan.slug, plan.title, args.confirm
+                ),
+                None,
+            ));
+        }
+
+        let preview = store.plan_removal(&plan).map_err(to_err)?;
+        if args.dry_run.unwrap_or(false) {
+            return json(&serde_json::json!({
+                "deleted": false, "dry_run": true, "plan": preview,
+            }));
+        }
+
+        let worktree = git.as_ref().map(|g| g.worktree_str());
+        let removal = store
+            .delete_plan(&plan, args.force.unwrap_or(false), worktree.as_deref())
+            .map_err(to_err)?;
+        json(&serde_json::json!({
+            "deleted": true, "dry_run": false, "plan": removal,
+        }))
     }
 
     #[tool(

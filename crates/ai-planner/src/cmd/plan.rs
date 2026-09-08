@@ -1,5 +1,8 @@
+use std::io::{IsTerminal, Write};
+
 use ai_planner_core::{
-    render_plan, GitContext, NewPlan, PlanFilter, PlanUpdate, Renders, SectionWrite, Status, Store,
+    render_plan, GitContext, NewPlan, PlanFilter, PlanRemoval, PlanUpdate, Renders, SectionWrite,
+    Status, Store,
 };
 use anyhow::{Context, Result};
 
@@ -194,6 +197,125 @@ pub fn edit(app: &mut App, args: &EditArgs, plan_ref: Option<&str>) -> Result<()
         ok(&format!("updated {}", updated.slug));
     }
     Ok(())
+}
+
+pub fn delete(app: &mut App, args: &DeleteArgs, plan_ref: Option<&str>) -> Result<()> {
+    // Every other command may work out which plan you mean from where you are
+    // standing, because the worst case is a note in the wrong plan. Here the worst
+    // case cannot be undone, so the plan has to be named.
+    let needle = args.plan.as_deref().or(plan_ref).ok_or_else(|| {
+        anyhow::anyhow!(
+            "name the plan to delete - `aip delete <plan>`; it is never taken from the worktree"
+        )
+    })?;
+    let plan = app.store.find_plan(needle, app.repo_id())?;
+    let preview = app.store.plan_removal(&plan)?;
+
+    if !app.json {
+        print_removal(&preview);
+    }
+
+    if args.dry_run {
+        if app.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "deleted": false, "dry_run": true, "plan": preview,
+                }))?
+            );
+        } else {
+            println!(
+                "{}",
+                dim("nothing was deleted - drop --dry-run to go through with it")
+            );
+        }
+        return Ok(());
+    }
+
+    if !args.yes && !confirmed(&plan.slug, app.json)? {
+        println!("{}", dim("left alone"));
+        return Ok(());
+    }
+
+    let worktree = app.git.as_ref().map(|g| g.worktree_str());
+    let removal = app
+        .store
+        .delete_plan(&plan, args.force, worktree.as_deref())?;
+
+    if app.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "deleted": true, "dry_run": false, "plan": removal,
+            }))?
+        );
+    } else {
+        ok(&format!("deleted {} - {}", removal.slug, removal.title));
+    }
+    Ok(())
+}
+
+/// Deleting is the one write that cannot be taken back, so an interactive caller
+/// types the slug out and everyone else has to have said `--yes` up front. A fuzzy
+/// reference that matched the wrong plan dies here rather than in the database.
+fn confirmed(slug: &str, json: bool) -> Result<bool> {
+    if json || !std::io::stdin().is_terminal() {
+        anyhow::bail!("not an interactive terminal - pass --yes to delete {slug}");
+    }
+    print!("Type {} to delete it, anything else to stop: ", bold(slug));
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(line.trim() == slug)
+}
+
+fn print_removal(r: &PlanRemoval) {
+    println!(
+        "{} {}",
+        bold(&r.slug),
+        dim(&format!("({}, {})", r.repo, r.status.as_str()))
+    );
+    println!("  {}", r.title);
+
+    let parts: Vec<String> = [
+        plural(r.slices, "slice", "slices"),
+        plural(r.decisions, "decision", "decisions"),
+        plural(r.questions, "question", "questions"),
+        plural(r.gotchas, "gotcha", "gotchas"),
+        plural(r.log_entries, "note", "notes"),
+        plural(r.handoffs, "handoff", "handoffs"),
+        plural(r.sections, "section", "sections"),
+        plural(r.sources, "source", "sources"),
+        plural(r.embeddings, "embedding", "embeddings"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if !parts.is_empty() {
+        println!("  {}", dim(&parts.join(" · ")));
+    }
+
+    for held in &r.held {
+        println!(
+            "  {} is claimed by {} in {}",
+            held.key, held.claimed_by, held.worktree_path
+        );
+    }
+    for path in &r.imported_from {
+        println!("  {}", dim(&format!("imported from {path}")));
+    }
+    println!(
+        "  {}",
+        dim("`aip export` keeps a copy of it; `aip db backup` copies the whole database")
+    );
+}
+
+fn plural(n: i64, one: &str, many: &str) -> Option<String> {
+    match n {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        n => Some(format!("{n} {many}")),
+    }
 }
 
 pub fn section(app: &mut App, args: &SectionArgs, plan_ref: Option<&str>) -> Result<()> {

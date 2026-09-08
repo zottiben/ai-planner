@@ -114,6 +114,26 @@ questions, progress log. `aip show` renders it back in that shape.
 Long bodies: pass `--file`, or pipe on stdin. Section writes take `--expect-rev` to
 refuse an overwrite if another agent changed it since you read it.
 
+## Deleting a plan
+
+```sh
+aip delete <plan> --dry-run   # exactly what would go
+aip delete <plan> --yes       # go through with it
+```
+
+The one thing here that cannot be undone: the slices, decisions, notes, gotchas,
+questions and handoffs go with the plan. It is not how work is finished - `aip set
+done` is that. Delete a plan raised by mistake, or to clear the ground so a task can
+be run again from nothing.
+
+**Ask the user first unless they asked for it.** It never works out which plan you mean
+from the worktree, so name it; `aip export <plan> -o <file>` keeps a copy of the
+document first. A plan another worktree has claimed a slice on is refused until
+`--force`, because that is somebody else's live work.
+
+The MCP tool is `delete_plan`, and it takes `confirm` - the resolved plan's exact slug,
+repeated back - so a loose reference cannot carry off the wrong plan.
+
 ## Finding a plan
 
 ```sh

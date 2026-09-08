@@ -82,6 +82,7 @@ fn run() -> Result<()> {
         Command::Show(args) => cmd::plan::show(&app, args, plan_ref),
         Command::Set(args) => cmd::plan::set(&mut app, args, plan_ref),
         Command::Edit(args) => cmd::plan::edit(&mut app, args, plan_ref),
+        Command::Delete(args) => cmd::plan::delete(&mut app, args, plan_ref),
         Command::Section(args) => cmd::plan::section(&mut app, args, plan_ref),
         Command::Source(args) => cmd::plan::source(&mut app, args, plan_ref),
         Command::Slice(c) => cmd::slice::run(&mut app, c, plan_ref),

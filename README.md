@@ -179,7 +179,7 @@ hook there could only block compaction, which is worse than saying nothing.
   `release_slice`, `set_slice_status`, `update_slice`, `add_slice`, `append_log`,
   `add_decision`, `supersede_decision`, `add_gotcha`, `open_question`,
   `list_questions`, `answer_question`, `update_section`, `create_plan`,
-  `write_handoff`, `import_markdown`, `sync_plan`.
+  `write_handoff`, `import_markdown`, `sync_plan`, `delete_plan`.
 - **Skill** - tells the agent which tool to reach for, and not to write plan markdown.
 
 Codex and Pi: call `aip hook --event …` from your own hooks; it prints the same JSON.
@@ -219,6 +219,33 @@ rather than guessing; naming one teaches the association for next time.
   overwriting it.
 - `aip slice claim` is guarded in the `UPDATE`'s `WHERE`, scoped to (actor, worktree),
   so two agents racing produce exactly one winner.
+
+## Deleting a plan
+
+```sh
+aip delete acme-1234 --dry-run   # what would go
+aip delete acme-1234             # type the slug to confirm
+aip delete acme-1234 --yes       # no prompt, for scripts and agents
+```
+
+The one write that cannot be taken back: the slices, decisions, notes, gotchas,
+questions and handoffs go with the plan, and it leaves the search index with them. It
+is for a plan raised by mistake, or for clearing the ground so a task can be run again
+from nothing - a finished plan is `aip set done`, not a deleted one.
+
+Four things stand in the way of the wrong plan going:
+
+- **It never resolves from the worktree.** Every other command works out which plan you
+  mean from where you are standing; this one has to be named.
+- **A terminal asks you to type the slug**; anything else has to have said `--yes`.
+  Over MCP, `delete_plan` takes a `confirm` that must equal the resolved slug, so a
+  loose reference cannot carry the wrong plan off.
+- **A slice another worktree holds refuses the delete** until `--force`. That is live
+  work belonging to somebody else.
+- **`--dry-run`** prints exactly what would be destroyed and stops.
+
+`aip export <plan> -o <file>` keeps a copy of the document first, and `aip db backup`
+copies the whole database.
 
 ## Statuses
 

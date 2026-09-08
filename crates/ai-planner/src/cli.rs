@@ -70,6 +70,10 @@ pub enum Command {
     /// Change a plan's header fields
     Edit(EditArgs),
 
+    /// Delete a plan and everything on it
+    #[command(alias = "rm")]
+    Delete(DeleteArgs),
+
     /// Write a section of the plan document
     Section(SectionArgs),
 
@@ -305,6 +309,24 @@ pub struct EditArgs {
     pub base: Option<String>,
     #[arg(long)]
     pub owner: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct DeleteArgs {
+    /// Which plan: slug, ticket key, id or part of the title. Never inferred
+    pub plan: Option<String>,
+
+    /// Report what would go and delete nothing
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Delete without the confirmation prompt
+    #[arg(long, short = 'y')]
+    pub yes: bool,
+
+    /// Delete even while another worktree holds one of its slices
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Args, Debug)]

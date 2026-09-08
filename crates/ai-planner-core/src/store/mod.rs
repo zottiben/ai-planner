@@ -10,7 +10,7 @@ mod slices;
 
 pub use notes::{NewDecision, NewLog};
 pub(crate) use plans::{row_to_plan, PLAN_SELECT};
-pub use plans::{NewPlan, PlanFilter, PlanUpdate, SectionWrite};
+pub use plans::{HeldSlice, NewPlan, PlanFilter, PlanRemoval, PlanUpdate, SectionWrite};
 pub use slices::{NewSlice, SliceUpdate};
 
 use std::path::Path;

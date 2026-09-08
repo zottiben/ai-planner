@@ -517,3 +517,176 @@ fn the_bundle_carries_the_whole_document() {
     assert!(md.contains("### The Herd symlink is shared"));
     assert!(md.contains("Grounded and planned."));
 }
+
+/// Deleting has to take the derived rows with it, or a gone plan keeps answering
+/// searches and keeps resolving in the worktree it was built in.
+#[test]
+fn deleting_a_plan_leaves_nothing_of_it_behind_and_spares_its_neighbour() {
+    let fx = Fixture::new();
+    let mut store = fx.store();
+
+    let doomed = seed_plan(&mut store, fx.repo_id, "ACME-1234 - Picker");
+    let keeper = seed_plan(&mut store, fx.repo_id, "ACME-9999 - Canvas");
+
+    let slice = store
+        .add_slice(NewSlice {
+            plan_id: doomed.id,
+            key: "PR1".into(),
+            title: "Shared core".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    store
+        .add_decision(ai_planner_core::store::NewDecision {
+            plan_id: doomed.id,
+            title: "The value is a specification".into(),
+            body: "Not two resolved dates.".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    store
+        .add_gotcha(doomed.id, "The Herd symlink is shared", "Put it back.")
+        .unwrap();
+    store
+        .add_question(doomed.id, Some(slice.id), "past or both?")
+        .unwrap();
+    store
+        .append_log(NewLog {
+            plan_id: doomed.id,
+            slice_id: Some(slice.id),
+            body: "Core landed.".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    store
+        .write_handoff(ai_planner_core::NewHandoff {
+            plan_id: doomed.id,
+            worktree_path: "/wt/1".into(),
+            branch: Some("feat/core".into()),
+            head_sha: None,
+            gates: Vec::new(),
+            resume_md: "Where it got to.".into(),
+            next_md: "PR2".into(),
+        })
+        .unwrap();
+    store
+        .record_affinity(doomed.id, fx.repo_id, Some("feat/core"), "/wt/1")
+        .unwrap();
+    store.reindex().unwrap();
+
+    let before = store.search_rows().unwrap();
+    assert!(
+        before > 0,
+        "the fixture has to be indexed to prove anything"
+    );
+
+    let removal = store.delete_plan(&doomed, false, Some("/wt/1")).unwrap();
+    assert_eq!(removal.slug, "acme-1234");
+    assert_eq!(removal.slices, 1);
+    assert_eq!(removal.decisions, 1);
+    assert_eq!(removal.gotchas, 1);
+    assert_eq!(removal.questions, 1);
+    assert_eq!(removal.handoffs, 1);
+    // One progress note, plus the status rows the claim and the slice wrote.
+    assert!(removal.log_entries >= 1, "{removal:?}");
+
+    assert!(matches!(
+        store.get_plan(doomed.id),
+        Err(Error::NoSuchPlan(_))
+    ));
+    let conn_counts = |table: &str| -> i64 {
+        store
+            .db()
+            .conn()
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {table} WHERE plan_id = ?1"),
+                [doomed.id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    for table in [
+        "plan_section",
+        "slice",
+        "decision",
+        "question",
+        "gotcha",
+        "log",
+        "handoff",
+        "plan_affinity",
+        "search",
+    ] {
+        assert_eq!(conn_counts(table), 0, "{table} still has rows");
+    }
+
+    // The counter the search and doctor paths read has to match the index itself.
+    let indexed: i64 = store
+        .db()
+        .conn()
+        .query_row("SELECT COUNT(*) FROM search", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(store.search_rows().unwrap(), indexed);
+    assert!(indexed > 0, "the surviving plan is still indexed");
+    assert!(indexed < before);
+
+    // The neighbour is untouched, including its place in the index.
+    let kept = store.get_plan(keeper.id).unwrap();
+    assert_eq!(kept.slug, "acme-9999");
+    let opts = ai_planner_core::SearchOptions {
+        limit: 20,
+        ..Default::default()
+    };
+    let hits = store.search("Canvas", &opts).unwrap();
+    assert!(hits.iter().all(|h| h.plan.id == keeper.id), "{hits:?}");
+    // And the deleted plan answers nothing at all.
+    assert!(
+        store.search("Herd symlink", &opts).unwrap().is_empty(),
+        "a deleted plan is still in the index"
+    );
+}
+
+/// A plan is shared. Deleting one somebody else is mid-way through throws their work
+/// away with it, so the claim has to be released or the delete forced.
+#[test]
+fn a_plan_another_worktree_is_holding_is_not_deleted_by_accident() {
+    let fx = Fixture::new();
+    let mut store = fx.store();
+    let plan = seed_plan(&mut store, fx.repo_id, "ACME-1234 - Picker");
+    let slice = store
+        .add_slice(NewSlice {
+            plan_id: plan.id,
+            key: "PR1".into(),
+            title: "Shared core".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    store.claim_slice(&slice, "/wt/other", None).unwrap();
+
+    let refused = store.delete_plan(&plan, false, Some("/wt/mine"));
+    assert!(
+        matches!(&refused, Err(Error::PlanIsHeld(slug, 1, detail))
+            if slug == "acme-1234" && detail.contains("/wt/other")),
+        "{refused:?}"
+    );
+    assert!(store.get_plan(plan.id).is_ok(), "nothing was deleted");
+
+    // Work this worktree holds itself is its own to throw away.
+    let mine = seed_plan(&mut store, fx.repo_id, "ACME-4321 - Mine");
+    let slice = store
+        .add_slice(NewSlice {
+            plan_id: mine.id,
+            key: "PR1".into(),
+            title: "Mine".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    store.claim_slice(&slice, "/wt/mine", None).unwrap();
+    store.delete_plan(&mine, false, Some("/wt/mine")).unwrap();
+    assert!(matches!(store.get_plan(mine.id), Err(Error::NoSuchPlan(_))));
+
+    // And forcing it goes through, reporting what it took.
+    let removal = store.delete_plan(&plan, true, Some("/wt/mine")).unwrap();
+    assert_eq!(removal.held.len(), 1);
+    assert_eq!(removal.held[0].worktree_path, "/wt/other");
+    assert!(matches!(store.get_plan(plan.id), Err(Error::NoSuchPlan(_))));
+}
