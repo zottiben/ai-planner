@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "ai-planner"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ai-planner-core",
  "anyhow",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "ai-planner-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fastembed",
  "rusqlite",
