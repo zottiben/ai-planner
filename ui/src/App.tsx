@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "./api";
 import { Board } from "./Board";
+import { Drawer } from "./Drawer";
 import { ago } from "./format";
 import { useResource } from "./hooks";
 import { Logo } from "./icons";
-import { navigate, parse, planPath, slicePath, usePath } from "./router";
+import { aboutPath, navigate, parse, planPath, slicePath, usePath } from "./router";
+import { Rundown } from "./Rundown";
 import { Sidebar } from "./Sidebar";
 import type { Slice } from "./types";
 
@@ -49,6 +51,12 @@ export function App() {
     if (!plan) return;
     navigate(slicePath(plan.slug, slice.key));
   };
+
+  // The drawer is driven by the URL, so a ticket can be pasted into a message and a
+  // reload lands back on it. The slice comes from the board that is already loaded.
+  const openTicket = route.sliceKey
+    ? board.data?.columns.flatMap((column) => column.slices).find((s) => s.key === route.sliceKey)
+    : undefined;
 
   return (
     <div className="shell">
@@ -104,7 +112,7 @@ export function App() {
                 </button>
                 <button
                   className={`tab${route.tab === "plan" ? " is-current" : ""}`}
-                  onClick={() => navigate(`${planPath(plan.slug)}/about`)}
+                  onClick={() => navigate(aboutPath(plan.slug))}
                 >
                   Plan
                 </button>
@@ -114,18 +122,35 @@ export function App() {
               </div>
             </header>
 
-            {board.error && <Fatal title="Cannot load the board" detail={board.error.message} />}
-
-            {board.data && meta.data && (
-              <Board
-                board={board.data}
-                statuses={meta.data.statuses}
-                currentSliceKey={route.sliceKey}
-                onOpen={openSlice}
+            {route.tab === "plan" ? (
+              <Rundown
+                planId={plan.id}
+                onOpenSlice={(key) => navigate(slicePath(plan.slug, key))}
               />
+            ) : (
+              <>
+                {board.error && (
+                  <Fatal title="Cannot load the board" detail={board.error.message} />
+                )}
+                {board.data && meta.data && (
+                  <Board
+                    board={board.data}
+                    statuses={meta.data.statuses}
+                    currentSliceKey={route.sliceKey}
+                    onOpen={openSlice}
+                  />
+                )}
+                {!board.data && !board.error && <BoardSkeleton />}
+              </>
             )}
 
-            {!board.data && !board.error && <BoardSkeleton />}
+            {openTicket && meta.data && (
+              <Drawer
+                slice={openTicket}
+                statuses={meta.data.statuses}
+                onClose={() => navigate(planPath(plan.slug))}
+              />
+            )}
           </>
         )}
       </main>

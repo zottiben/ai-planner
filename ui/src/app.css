@@ -704,3 +704,462 @@ a:hover {
 .board::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---- drawer ------------------------------------------------------------------ */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  animation: fade 0.14s ease;
+  z-index: 10;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(560px, 92vw);
+  background: var(--bg-raised);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  z-index: 11;
+  animation: slide-in 0.16s ease;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+}
+
+.drawer-head {
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.drawer-head-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 5px;
+}
+
+.drawer-head h2 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+  line-height: 1.35;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.icon-button {
+  margin-left: auto;
+  color: var(--text-faint);
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+
+.icon-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 18px 40px;
+  min-height: 0;
+}
+
+.field {
+  padding-top: 16px;
+}
+
+.field h3,
+.doc-section > h2 {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  margin: 0 0 7px;
+}
+
+.callout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--active);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 12px;
+}
+
+.callout b {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.callout span {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.blocked-callout {
+  border-left-color: var(--blocked);
+}
+
+.blocked-callout b {
+  color: var(--blocked);
+}
+
+.question-callout {
+  border-left-color: var(--blocked);
+  margin-bottom: 22px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) 1fr;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.facts dt {
+  color: var(--text-faint);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.facts dd a,
+.facts dd.mono {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.facts dd.mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+/* ---- log --------------------------------------------------------------------- */
+
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.log-entry {
+  padding: 7px 0 7px 11px;
+  border-left: 2px solid var(--line);
+}
+
+.log-entry.kind-blocker {
+  border-left-color: var(--blocked);
+}
+
+.log-entry.kind-verification {
+  border-left-color: var(--done);
+}
+
+.log-entry.kind-decision,
+.log-entry.kind-gotcha {
+  border-left-color: var(--in-review);
+}
+
+.log-entry.kind-handoff {
+  border-left-color: var(--active);
+}
+
+.log-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-bottom: 1px;
+}
+
+.log-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* ---- rundown ----------------------------------------------------------------- */
+
+.rundown {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 18px 20px 64px;
+}
+
+.rundown-doc {
+  max-width: 74ch;
+}
+
+.doc-section {
+  margin-bottom: 30px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.entry {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 11px 13px;
+  background: var(--bg-raised);
+}
+
+.entry h3 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin: 0 0 5px;
+}
+
+.entry.is-superseded > h3,
+.entry.is-superseded > .md {
+  opacity: 0.55;
+}
+
+.entry.is-superseded > h3 {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.supersede {
+  margin: 0 0 7px;
+  font-size: 12px;
+  color: var(--in-review);
+}
+
+.tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+.tag.open {
+  color: var(--blocked);
+  border-color: var(--blocked);
+}
+
+.tag.muted {
+  opacity: 0.65;
+}
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plain-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.plain-list li:last-child {
+  border-bottom: 0;
+}
+
+.linkish {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  text-align: left;
+  color: var(--accent);
+}
+
+.linkish:hover {
+  text-decoration: underline;
+}
+
+.question-body {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.answer {
+  margin-top: 7px;
+  padding-left: 10px;
+  border-left: 2px solid var(--done);
+}
+
+.faint {
+  color: var(--text-faint);
+}
+
+.small {
+  font-size: 11px;
+}
+
+/* ---- markdown ---------------------------------------------------------------- */
+
+.md > *:first-child {
+  margin-top: 0;
+}
+
+.md > *:last-child {
+  margin-bottom: 0;
+}
+
+.md p,
+.md ul,
+.md ol,
+.md pre,
+.md blockquote,
+.md table {
+  margin: 0 0 9px;
+}
+
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 14px 0 5px;
+}
+
+.md ul,
+.md ol {
+  padding-left: 19px;
+}
+
+.md li {
+  margin-bottom: 3px;
+}
+
+.md code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.5px 4px;
+  overflow-wrap: anywhere;
+}
+
+.md pre {
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  overflow-x: auto;
+}
+
+.md pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.md blockquote {
+  padding-left: 11px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-dim);
+}
+
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 14px 0;
+}
+
+.md table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md th {
+  background: var(--bg-sunken);
+  font-weight: 600;
+}
+
+.md.tight p {
+  margin: 0 0 4px;
+}
+
+.md.tight > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Focus moves into the dialog when it opens so the keyboard follows the eye, but the
+   panel is not a control - a ring around the whole thing reads as a rendering fault.
+   Every control inside it keeps its own ring. */
+.drawer:focus,
+.drawer:focus-visible {
+  outline: none;
+}
