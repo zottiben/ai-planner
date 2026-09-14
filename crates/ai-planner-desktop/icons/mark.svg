@@ -1,0 +1,25 @@
+<!--
+  The mark: three columns of a board, descending, with the rightmost one already
+  cleared. It reads as progress across a board and it survives being 16px in a dock,
+  which is the only real constraint on an app icon (D3). Deliberately geometric - an
+  illustration at this size is a smudge.
+
+  Source of truth for every generated icon. `tauri icon` produces the .icns, .ico and
+  PNG set from the rendered PNG of this file; see `icons/README.md`.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f6ef0"/>
+      <stop offset="1" stop-color="#2a4fc2"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+
+  <g fill="#ffffff">
+    <rect x="196" y="236" width="152" height="552" rx="60" opacity="0.42"/>
+    <rect x="436" y="236" width="152" height="392" rx="60" opacity="0.72"/>
+    <rect x="676" y="236" width="152" height="232" rx="60"/>
+  </g>
+</svg>

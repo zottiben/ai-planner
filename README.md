@@ -97,7 +97,53 @@ and `aip show -P` scrolls it in a pager with `/` to search. Behind a pipe, a red
 what an agent reads. `--plain` forces that anywhere, `AI_PLANNER_MARKDOWN=always`
 forces the other way, and no gum installed simply means plain markdown.
 
-### 5. Browse it
+### 5. See it as a board
+
+```sh
+aip ui             # opens a browser at a local board
+```
+
+A sidebar of every repo in the database and the plans under it; a column per status
+with a card per slice; a ticket behind each card with its scope, demo, branch, PR, who
+holds the claim and its own progress log; and a Plan tab with the decisions, gotchas
+and open questions laid out to read.
+
+It is a write surface, not a report. Dragging a card is `aip slice set`, and the board
+claims, releases, links a PR and writes progress notes through the same `Store` the
+CLI uses - so the claim guard and the append-only log apply exactly as they do in a
+terminal.
+
+The frontend is compiled into the binary, so there is no dev server and no `npm
+install`. It binds `127.0.0.1` only, on a port the OS picks, with a token minted per
+run - loopback is not an origin boundary, and this API can move any slice in any repo
+on the machine.
+
+It follows the database while you watch: an agent writing from another worktree moves
+the card without a refresh.
+
+```sh
+aip ui --port 7777 --no-open    # a stable URL, and leave the browser alone
+```
+
+### 5b. Or as a desktop app
+
+```sh
+cd crates/ai-planner-desktop && npx @tauri-apps/cli@2 build
+```
+
+Produces a `.dmg` on macOS, `.msi`/`.exe` on Windows and `.AppImage`/`.deb` on Linux -
+about 13 MB installed, because it uses the platform's webview rather than shipping a
+copy of Chromium. It is the same app `aip ui` serves, in a window with an icon.
+
+`.github/workflows/desktop.yml` builds all three on a tag.
+
+> The bundles are **unsigned**. macOS will refuse the first launch with "cannot be
+> opened because the developer cannot be verified" - right-click the app and choose
+> Open, or `xattr -dr com.apple.quarantine /Applications/ai-planner.app`. Windows will
+> show a SmartScreen warning. Signing needs an Apple Developer ID and a Windows
+> certificate; neither is wired into CI.
+
+### 5c. Or as rows
 
 ```sh
 aip db open        # hands the file to TablePlus
@@ -273,4 +319,27 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 cargo test --features model-embeddings
+```
+
+The board's frontend lives in `ui/` and is built into `ui/dist`, which is **committed**:
+it gets compiled into the binary, so `cargo install` has to work on a machine with a
+Rust toolchain and nothing else. `cargo build` rebuilds it when node is present and a
+source is newer, and never fails the build if node is missing - `aip doctor` reports
+which kind of binary you have.
+
+```sh
+cd ui && npm ci
+npm test              # the markdown renderer and the formatters
+npm run typecheck
+
+# Iterating on the frontend: hot reload against a real board
+aip ui --port 7777 --no-open
+npm run dev
+```
+
+The desktop shell is out of the default workspace members, so `cargo build`, `cargo
+test` and `cargo clippy` at the root skip Tauri entirely. Build it by name:
+
+```sh
+cargo build -p ai-planner-desktop
 ```

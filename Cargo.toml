@@ -1,6 +1,21 @@
 [workspace]
 resolver = "2"
-members = ["crates/ai-planner-core", "crates/ai-planner-ui", "crates/ai-planner"]
+members = [
+    "crates/ai-planner-core",
+    "crates/ai-planner-ui",
+    "crates/ai-planner",
+    "crates/ai-planner-desktop",
+]
+
+# The desktop shell is out of the default set on purpose. It pulls in Tauri and a
+# platform webview, which is minutes of build time and a system dependency on Linux -
+# and nobody changing `store.rs` should pay for either. `cargo build`, `cargo test` and
+# `cargo clippy` at the root skip it; build it by name with `-p ai-planner-desktop`.
+default-members = [
+    "crates/ai-planner-core",
+    "crates/ai-planner-ui",
+    "crates/ai-planner",
+]
 
 [workspace.package]
 version = "0.3.0"

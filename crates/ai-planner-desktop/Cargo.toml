@@ -1,0 +1,27 @@
+[package]
+name = "ai-planner-desktop"
+description = "The ai-planner board as a desktop app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ai-planner"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+ai-planner-core = { path = "../ai-planner-core" }
+ai-planner-ui = { path = "../ai-planner-ui" }
+anyhow.workspace = true
+tauri = { version = "2", features = [] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tauri-plugin-window-state = "2"
+
+[features]
+# Tauri's own convention: the CLI sets this so a production bundle refuses to load a
+# dev server it should not be talking to.
+custom-protocol = ["tauri/custom-protocol"]

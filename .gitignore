@@ -15,3 +15,6 @@ node_modules/
 # out of repos, so committing it would give a fresh clone a dangling link.
 .claude/
 .agents/
+
+# Tauri's generated per-build files. The icon set and tauri.conf.json are committed.
+/crates/ai-planner-desktop/gen/
