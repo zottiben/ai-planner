@@ -94,6 +94,27 @@ describe("Markdown", () => {
     expect(out).not.toContain("<td>---</td>");
   });
 
+  it("always advances past lines that look like unsupported block openers", () => {
+    const out = html(
+      [
+        "before",
+        "             |",
+        "after the pipe",
+        "",
+        "    # a shell comment, not a heading",
+        "after the hash",
+      ].join("\n"),
+    );
+
+    // Both forms exist in imported production plans. They used to match the
+    // paragraph's stop condition without matching any block parser, so `blocks`
+    // repeated the same line forever and froze the whole tab.
+    expect(out).toContain("|");
+    expect(out).toContain("# a shell comment, not a heading");
+    expect(out).toContain("after the pipe");
+    expect(out).toContain("after the hash");
+  });
+
   it("does not swallow the rest of a document after an unterminated code fence", () => {
     const out = html("```\nunclosed\n");
     expect(out).toContain("unclosed");

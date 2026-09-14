@@ -7,6 +7,7 @@ import { ago } from "./format";
 import { useResource } from "./hooks";
 import { Logo } from "./icons";
 import { useLive } from "./live";
+import { PlanSummary } from "./PlanSummary";
 import { aboutPath, navigate, parse, planPath, slicePath, usePath } from "./router";
 import { Rundown } from "./Rundown";
 import { Sidebar } from "./Sidebar";
@@ -149,7 +150,7 @@ export function App() {
                 </div>
               </div>
 
-              {plan.summary && <p className="plan-summary">{plan.summary}</p>}
+              {plan.summary && <PlanSummary key={plan.id} text={plan.summary} />}
 
               <div className="tabs">
                 <button

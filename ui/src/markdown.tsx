@@ -73,8 +73,29 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
+const FENCE = /^\s*```(\w*)\s*$/;
+const HEADING = /^(#{1,6})\s+(.*)$/;
+const RULE = /^\s*(---+|\*\*\*+|___+)\s*$/;
+const QUOTE = /^\s*>/;
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const BULLET = /^(\s*)[-*+]\s+(.*)$/;
 const NUMBERED = /^(\s*)\d+[.)]\s+(.*)$/;
+
+/** Must match the recognisers in `blocks`. A stop condition that no recogniser can
+ * consume leaves `i` unchanged and turns one unusual imported line into an infinite
+ * loop. The final progress guard below is deliberately kept as a second defence. */
+function startsBlock(line: string): boolean {
+  return (
+    line.trim() === "" ||
+    FENCE.test(line) ||
+    HEADING.test(line) ||
+    RULE.test(line) ||
+    QUOTE.test(line) ||
+    TABLE_ROW.test(line) ||
+    BULLET.test(line) ||
+    NUMBERED.test(line)
+  );
+}
 
 export function Markdown({ source, className }: { source: string; className?: string }) {
   return <div className={`md${className ? ` ${className}` : ""}`}>{blocks(source)}</div>;
@@ -96,7 +117,7 @@ function blocks(source: string): ReactNode[] {
 
     // Fenced code. The closing fence is optional so an unterminated block still
     // renders the rest of the document instead of eating it.
-    const fence = /^\s*```(\w*)\s*$/.exec(line);
+    const fence = FENCE.exec(line);
     if (fence) {
       const body: string[] = [];
       i += 1;
@@ -113,7 +134,7 @@ function blocks(source: string): ReactNode[] {
       continue;
     }
 
-    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    const heading = HEADING.exec(line);
     if (heading) {
       const depth = (heading[1] ?? "#").length;
       // Headings inside a body sit under the pane's own heading, so they start two
@@ -124,13 +145,13 @@ function blocks(source: string): ReactNode[] {
       continue;
     }
 
-    if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(line)) {
+    if (RULE.test(line)) {
       out.push(<hr key={key++} />);
       i += 1;
       continue;
     }
 
-    if (/^\s*>/.test(line)) {
+    if (QUOTE.test(line)) {
       const body: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i] ?? "")) {
         body.push((lines[i] ?? "").replace(/^\s*>\s?/, ""));
@@ -140,7 +161,7 @@ function blocks(source: string): ReactNode[] {
       continue;
     }
 
-    if (/^\s*\|.*\|\s*$/.test(line)) {
+    if (TABLE_ROW.test(line)) {
       const rows: string[] = [];
       while (i < lines.length && /^\s*\|/.test(lines[i] ?? "")) {
         rows.push(lines[i] ?? "");
@@ -181,15 +202,14 @@ function blocks(source: string): ReactNode[] {
     const paragraph: string[] = [];
     while (i < lines.length) {
       const current = lines[i] ?? "";
-      if (
-        current.trim() === "" ||
-        /^\s*(#{1,6}\s|>|```|\||---+$)/.test(current) ||
-        BULLET.test(current) ||
-        NUMBERED.test(current)
-      ) {
-        break;
-      }
+      if (startsBlock(current)) break;
       paragraph.push(current);
+      i += 1;
+    }
+    if (paragraph.length === 0) {
+      // Future block syntax must not be able to wedge the tab even if its recogniser
+      // and `startsBlock` accidentally drift apart. Unknown input renders literally.
+      paragraph.push(line);
       i += 1;
     }
     out.push(<p key={key++}>{inline(paragraph.join(" "), `p${key}`)}</p>);
