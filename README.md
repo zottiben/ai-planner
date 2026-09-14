@@ -15,28 +15,35 @@ one plan, and one of them wins. This removes the copies.
 
 ### 1. Install
 
-Needs a Rust toolchain ([rustup.rs](https://rustup.rs)).
+```sh
+curl -fsSL https://zottiben.github.io/ai-planner/install.sh | sh
+```
+
+No Rust toolchain needed: that downloads the latest release for your platform. macOS
+and Linux, on x86_64 and arm64.
+
+Or from a clone, which builds it:
 
 ```sh
 git clone https://github.com/zottiben/ai-planner && cd ai-planner
-./install/install.sh
+./install/install.sh --from-source
 ```
 
-That does three things:
+Either way it does three things:
 
 | | |
 | --- | --- |
-| `cargo install` | the `aip` binary |
+| installs | the `aip` binary - and `ai-planner.app` into `/Applications` on macOS |
 | `aip setup` | the skill (`~/.claude/skills`, `~/.agents/skills`), the always-on rules block in your global charter, and the three harness hooks merged into `~/.claude/settings.json` |
 | `install-mcp.sh` | the MCP server, registered with Claude Code, Codex and Pi |
 
-The skill and the hook script are compiled into the binary, so `aip setup` needs no
-clone and no network - and they can never fall out of step with the version you are
-running.
+The skill, the hook script and the board's frontend are all compiled into the binary,
+so `aip setup` needs no clone and no network, `aip ui` needs no dev server, and none of
+them can fall out of step with the version you are running.
 
 Add `--with-model` for semantic search (see [step 6](#6-optional-search-by-meaning)).
-Each script runs standalone and takes `--project` to install into the current repo
-instead of user-wide.
+That one implies `--from-source`, because the feature is compiled in. Each script runs
+standalone and takes `--project` to install into the current repo instead of user-wide.
 
 `brew install gum` is optional and makes `aip show` render the plan instead of printing
 raw markdown at you.
@@ -135,13 +142,16 @@ Produces a `.dmg` on macOS, `.msi`/`.exe` on Windows and `.AppImage`/`.deb` on L
 about 13 MB installed, because it uses the platform's webview rather than shipping a
 copy of Chromium. It is the same app `aip ui` serves, in a window with an icon.
 
-`.github/workflows/desktop.yml` builds all three on a tag.
+`.github/workflows/release.yml` builds all three on a version tag, alongside standalone
+CLI archives and `checksums.txt`. macOS is a universal binary; Linux also ships native
+x86_64 and arm64 builds.
 
-> The bundles are **unsigned**. macOS will refuse the first launch with "cannot be
-> opened because the developer cannot be verified" - right-click the app and choose
-> Open, or `xattr -dr com.apple.quarantine /Applications/ai-planner.app`. Windows will
-> show a SmartScreen warning. Signing needs an Apple Developer ID and a Windows
-> certificate; neither is wired into CI.
+> The macOS app is **ad-hoc signed** by default. The curl installer does not set the
+> quarantine attribute, so the app it puts in `/Applications` launches normally. A
+> `.dmg` downloaded in a browser is quarantined: right-click the app and choose Open,
+> or run `xattr -dr com.apple.quarantine /Applications/ai-planner.app`. The workflow
+> automatically upgrades to Developer ID signing and notarisation if the same secrets
+> used by Skelly are configured. Windows remains unsigned and can show SmartScreen.
 
 ### 5c. Or as rows
 

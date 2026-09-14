@@ -9,6 +9,10 @@ use crate::update::{self, Source};
 const PACKAGE: &str = "ai-planner";
 
 pub fn update(args: &UpdateArgs) -> Result<()> {
+    if update::installed_from_release(&update::home_dir())? {
+        return update_release(args);
+    }
+
     let home = update::cargo_home();
     let Some(install) = update::installed(&home, PACKAGE)? else {
         anyhow::bail!(
@@ -133,6 +137,65 @@ pub fn update(args: &UpdateArgs) -> Result<()> {
         "Done. {}",
         dim("Restart your agent, then run `aip doctor`.")
     );
+    Ok(())
+}
+
+fn update_release(args: &UpdateArgs) -> Result<()> {
+    println!(
+        "{} {}",
+        bold(&format!("aip {}", env!("CARGO_PKG_VERSION"))),
+        dim("prebuilt GitHub release")
+    );
+
+    let latest = match update::latest_release_version() {
+        Ok(version) => {
+            println!("{}", dim(&format!("  latest release is v{version}")));
+            version
+        }
+        Err(err) => {
+            println!("{}", dim(&format!("  could not reach GitHub ({err})")));
+            if args.check {
+                return Ok(());
+            }
+            anyhow::bail!("could not check for a release - the existing binary is untouched");
+        }
+    };
+
+    if args.check {
+        return Ok(());
+    }
+    match update::release_order(&latest, env!("CARGO_PKG_VERSION"))? {
+        std::cmp::Ordering::Less => {
+            println!(
+                "\nNothing to do. {}",
+                dim("The published release is older than this binary; refusing to downgrade.")
+            );
+            return Ok(());
+        }
+        std::cmp::Ordering::Equal if !args.force => {
+            println!(
+                "\nNothing to do. {}",
+                dim("Pass --force to reinstall anyway.")
+            );
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    match backup_database() {
+        Ok(Some(path)) => ok(&format!(
+            "backed up the database to {}",
+            super::setup::shown(&path)
+        )),
+        Ok(None) => println!("{}", dim("no database yet - nothing to back up")),
+        Err(err) => println!(
+            "{}",
+            dim(&format!("could not back up the database: {err:#}"))
+        ),
+    }
+
+    println!();
+    update::run_release_installer()?;
     Ok(())
 }
 

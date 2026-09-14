@@ -1,11 +1,11 @@
 //! Self-update, and the assets the binary carries so it can refresh its own setup.
 //!
-//! Unlike `awt`, there are no release binaries to download: this is installed with
-//! `cargo install`, so updating means running that again. The one thing that must not
-//! be guessed is *how* it was installed - a rebuild that quietly drops
-//! `--features model-embeddings` leaves semantic search broken with no error - so the
-//! source and the feature list are read back out of cargo's own records rather than
-//! assumed.
+//! A release install updates through the same installer that put it there. A source
+//! install runs `cargo install` again. The one thing that must not be guessed is *how*
+//! it was installed - replacing a feature-selected build with the stock release, or a
+//! rebuild that quietly drops `--features model-embeddings`, leaves semantic search
+//! broken with no error. A release marker deliberately outranks cargo's records; for a
+//! source install the source and feature list are read back from those records.
 //!
 //! The skill and the hook script are embedded with `include_str!`, which means they
 //! can never be out of step with the binary and an update needs no repo clone and no
@@ -18,6 +18,9 @@ use anyhow::{Context, Result};
 pub const SKILL: &str = include_str!("../../../skill/SKILL.md");
 pub const HOOK_SCRIPT: &str = include_str!("../../../install/hooks/ai-planner-session.sh");
 pub const SKILL_NAME: &str = "ai-planner";
+const RELEASE_MARKER: &str = ".ai-planner/install-method";
+const RELEASE_API: &str = "https://api.github.com/repos/zottiben/ai-planner/releases/latest";
+const INSTALL_SCRIPT: &str = "https://zottiben.github.io/ai-planner/install.sh";
 
 /// The events the hook script serves. `PreCompact` and `SessionEnd` are absent on
 /// purpose: neither can inject context, so a hook there could only block.
@@ -93,6 +96,80 @@ impl Install {
         } else {
             format!("{where_} (features: {})", self.features.join(", "))
         }
+    }
+}
+
+/// The release installer writes this marker after replacing the binary. It has to
+/// outrank cargo's metadata: a user can install from source once and replace that
+/// binary with a release later, but cargo keeps the stale source record forever.
+pub fn installed_from_release(home: &Path) -> Result<bool> {
+    let marker = home.join(RELEASE_MARKER);
+    match std::fs::read_to_string(&marker) {
+        Ok(value) => Ok(value.trim() == "release"),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(err).with_context(|| format!("reading {}", marker.display())),
+    }
+}
+
+/// Ask GitHub which published release the installer would select.
+pub fn latest_release_version() -> Result<String> {
+    let output = std::process::Command::new("curl")
+        .args(["-fsSL", "-H", "User-Agent: aip", RELEASE_API])
+        .output()
+        .context("running curl")?;
+    if !output.status.success() {
+        anyhow::bail!("GitHub returned {}", output.status);
+    }
+    release_version(&output.stdout)
+}
+
+pub fn release_order(latest: &str, current: &str) -> Result<std::cmp::Ordering> {
+    let latest = semver::Version::parse(latest).context("the latest release is not SemVer")?;
+    let current = semver::Version::parse(current).context("this binary's version is not SemVer")?;
+    Ok(latest.cmp(&current))
+}
+
+fn release_version(raw: &[u8]) -> Result<String> {
+    let value: serde_json::Value =
+        serde_json::from_slice(raw).context("reading GitHub's response")?;
+    value
+        .get("tag_name")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|tag| tag.strip_prefix('v'))
+        .filter(|version| !version.is_empty())
+        .map(str::to_string)
+        .context("the latest release has no v-prefixed tag")
+}
+
+/// Download and execute the public installer. It refreshes the binary, desktop app,
+/// skill, rules, hooks and MCP registration as one operation. A file instead of
+/// `curl | sh` means curl and the shell each have an independently checked exit code.
+pub fn run_release_installer() -> Result<()> {
+    let path = std::env::temp_dir().join(format!(
+        "ai-planner-install-{}-{}.sh",
+        std::process::id(),
+        ai_planner_core::util::now()
+            .replace([':', '-'], "")
+            .replace('Z', "")
+    ));
+
+    let download = std::process::Command::new("curl")
+        .args(["-fsSL", INSTALL_SCRIPT, "-o"])
+        .arg(&path)
+        .status()
+        .context("downloading the ai-planner installer")?;
+    if !download.success() {
+        anyhow::bail!("downloading the ai-planner installer failed");
+    }
+
+    let installed = std::process::Command::new("sh").arg(&path).status();
+    let _ = std::fs::remove_file(&path);
+    match installed {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => anyhow::bail!(
+            "the ai-planner installer failed - the previous binary may still be in place"
+        ),
+        Err(err) => Err(err).context("running the ai-planner installer"),
     }
 }
 
@@ -384,6 +461,43 @@ mod tests {
 
         std::fs::write(dir.path().join(".crates.toml"), "[v1]\n").unwrap();
         assert!(installed(dir.path(), "ai-planner").unwrap().is_none());
+    }
+
+    #[test]
+    fn a_release_marker_outranks_cargo_provenance() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!installed_from_release(dir.path()).unwrap());
+
+        let marker = dir.path().join(RELEASE_MARKER);
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, "release\n").unwrap();
+        assert!(installed_from_release(dir.path()).unwrap());
+
+        std::fs::write(marker, "source\n").unwrap();
+        assert!(!installed_from_release(dir.path()).unwrap());
+    }
+
+    #[test]
+    fn github_release_tags_are_v_prefixed_versions() {
+        assert_eq!(
+            release_version(br#"{"tag_name":"v0.4.0"}"#).unwrap(),
+            "0.4.0"
+        );
+        assert!(release_version(br#"{"tag_name":"nightly"}"#).is_err());
+        assert!(release_version(br#"{}"#).is_err());
+    }
+
+    #[test]
+    fn a_release_update_never_moves_backwards() {
+        use std::cmp::Ordering;
+
+        assert_eq!(release_order("0.4.0", "0.3.0").unwrap(), Ordering::Greater);
+        assert_eq!(release_order("0.4.0", "0.4.0").unwrap(), Ordering::Equal);
+        assert_eq!(release_order("0.3.0", "0.4.0").unwrap(), Ordering::Less);
+        assert_eq!(
+            release_order("0.4.0", "0.4.0-rc.1").unwrap(),
+            Ordering::Greater
+        );
     }
 
     #[test]

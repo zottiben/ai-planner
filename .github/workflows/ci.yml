@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    name: gate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Keep this version in sync with rust-toolchain.toml when it is bumped.
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # Built before the Rust gates because the bundle is compiled into the binary
+      # (rule 22), and a test asserts it is really there. Building it explicitly means
+      # a frontend break fails here with npm's own message rather than silently
+      # embedding the committed bundle and passing.
+      - name: frontend - install
+        run: npm ci
+        working-directory: ui
+      - name: frontend - typecheck
+        run: npm run typecheck
+        working-directory: ui
+      - name: frontend - test
+        run: npm test
+        working-directory: ui
+      - name: frontend - build
+        run: npm run build
+        working-directory: ui
+      - name: frontend - committed bundle is current
+        run: git diff --exit-code -- ui/dist
+
+      - name: format
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: test
+        run: cargo test
+
+      # The desktop shell is out of default-members (rule 25), so the gates above skip
+      # it. It still has to compile, and on Linux that needs the webview headers.
+      - name: desktop dependencies (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libxdo-dev libgtk-3-dev libssl-dev
+      - name: desktop clippy
+        run: cargo clippy -p ai-planner-desktop --all-targets -- -D warnings
+
+  embeddings:
+    name: optional semantic search
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+      # Off by default because it pulls an ONNX runtime, so it is not in the main gate
+      # - but it must still compile and pass, or `aip embed` rots unnoticed.
+      - name: test with the model feature
+        run: cargo test --features model-embeddings

@@ -1,7 +1,7 @@
 {
   "name": "ai-planner-ui",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "The kanban board. Built to static assets and embedded in the aip binary.",
   "scripts": {
