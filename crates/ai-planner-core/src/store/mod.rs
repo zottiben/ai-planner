@@ -4,10 +4,12 @@
 //! `IMMEDIATE` transaction, mutable text is guarded by a `rev`, and progress is only
 //! ever appended.
 
+mod board;
 mod notes;
 mod plans;
 mod slices;
 
+pub use board::{Board, BoardColumn, PlanSummary, RepoSummary, SliceDetail};
 pub use notes::{NewDecision, NewLog};
 pub(crate) use plans::{row_to_plan, PLAN_SELECT};
 pub use plans::{HeldSlice, NewPlan, PlanFilter, PlanRemoval, PlanUpdate, SectionWrite};

@@ -101,6 +101,7 @@ fn run() -> Result<()> {
             unreachable!("handled above")
         }
         Command::Serve(args) => serve(app, args),
+        Command::Ui(args) => cmd::ui::ui(app, args),
         Command::Doctor => cmd::doctor::doctor(&mut app),
         Command::Repos => cmd::plan::repos(&app),
         Command::Db(c) => cmd::db::run(&app, c),

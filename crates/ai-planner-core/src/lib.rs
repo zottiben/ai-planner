@@ -31,6 +31,7 @@ pub use render::render_plan;
 pub use resolve::{Resolution, Resolved, Rule, Unresolved};
 pub use search::{EmbedStats, Hit, IndexUnit, SearchOptions};
 pub use store::{
-    default_actor, HeldSlice, NewDecision, NewLog, NewPlan, NewSlice, PlanFilter, PlanRemoval,
-    PlanUpdate, SectionWrite, SliceUpdate, Store,
+    default_actor, Board, BoardColumn, HeldSlice, NewDecision, NewLog, NewPlan, NewSlice,
+    PlanFilter, PlanRemoval, PlanSummary, PlanUpdate, RepoSummary, SectionWrite, SliceDetail,
+    SliceUpdate, Store,
 };

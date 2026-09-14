@@ -303,9 +303,10 @@ pub fn to_blob(vector: &[f32]) -> Vec<u8> {
 }
 
 pub fn from_blob(blob: &[u8]) -> Vec<f32> {
-    blob.chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-        .collect()
+    // `as_chunks` gives fixed-size arrays, so `from_le_bytes` takes the chunk whole
+    // instead of being handed four indexes that could silently be the wrong four.
+    let (chunks, _) = blob.as_chunks::<4>();
+    chunks.iter().copied().map(f32::from_le_bytes).collect()
 }
 
 /// Cosine similarity, guarding the zero-vector case rather than returning NaN.

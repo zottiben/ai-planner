@@ -15,6 +15,7 @@ model-embeddings = ["ai-planner-core/model-embeddings"]
 
 [dependencies]
 ai-planner-core = { path = "../ai-planner-core" }
+ai-planner-ui = { path = "../ai-planner-ui" }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true

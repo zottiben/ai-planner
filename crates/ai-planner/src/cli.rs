@@ -128,6 +128,9 @@ pub enum Command {
     /// Run the MCP server over stdio
     Serve(ServeArgs),
 
+    /// Open the kanban board in a browser
+    Ui(UiArgs),
+
     /// Install the skill, the always-on rules and the harness hooks
     Setup(SetupArgs),
 
@@ -696,6 +699,25 @@ pub struct ServeArgs {
     pub root: Option<PathBuf>,
 
     /// How writes are attributed in the log. Defaults to the client name
+    #[arg(long)]
+    pub actor: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct UiArgs {
+    /// Port to listen on. 0 (the default) takes any free one
+    #[arg(long, default_value_t = 0)]
+    pub port: u16,
+
+    /// Print the URL but do not open a browser
+    #[arg(long)]
+    pub no_open: bool,
+
+    /// Reuse a fixed token instead of minting one. Only for a bookmarked URL
+    #[arg(long, env = "AI_PLANNER_UI_TOKEN", hide_env_values = true)]
+    pub token: Option<String>,
+
+    /// How the board's writes are attributed in the log
     #[arg(long)]
     pub actor: Option<String>,
 }

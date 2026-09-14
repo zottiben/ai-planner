@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ai-planner-core", "crates/ai-planner"]
+members = ["crates/ai-planner-core", "crates/ai-planner-ui", "crates/ai-planner"]
 
 [workspace.package]
 version = "0.3.0"
@@ -15,5 +15,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive", "env"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
+axum = "0.8"
+getrandom = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "signal"] }
 time = { version = "0.3", features = ["formatting", "parsing", "macros", "local-offset"] }
