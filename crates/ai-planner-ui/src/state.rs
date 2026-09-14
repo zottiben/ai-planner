@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use ai_planner_core::{Result as CoreResult, Store};
+use tokio::sync::broadcast;
 
 use crate::error::{Error, Result};
 
@@ -14,14 +15,40 @@ use crate::error::{Error, Result};
 pub struct AppState {
     store: Arc<Mutex<Store>>,
     token: Arc<str>,
+    changes: broadcast::Sender<u64>,
 }
 
 impl AppState {
     pub fn new(store: Store, token: impl Into<Arc<str>>) -> AppState {
+        // Small on purpose. The event carries no payload beyond "something changed", so
+        // a client that falls behind loses nothing by being told once instead of eight
+        // times - it refetches either way.
+        let (changes, _) = broadcast::channel(16);
         AppState {
             store: Arc::new(Mutex::new(store)),
             token: token.into(),
+            changes,
         }
+    }
+
+    pub fn changes(&self) -> broadcast::Sender<u64> {
+        self.changes.clone()
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<u64> {
+        self.changes.subscribe()
+    }
+
+    /// SQLite bumps this on our connection whenever *another* connection commits, which
+    /// is how a board notices an agent writing from a different process (D4).
+    pub fn data_version(&self) -> Result<u64> {
+        let guard = self.store.lock().map_err(|_| poisoned())?;
+        let version: i64 = guard
+            .db()
+            .conn()
+            .query_row("PRAGMA data_version", [], |row| row.get(0))
+            .map_err(ai_planner_core::Error::from)?;
+        Ok(version as u64)
     }
 
     pub fn token(&self) -> &str {

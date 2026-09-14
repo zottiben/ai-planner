@@ -9,6 +9,7 @@
 mod assets;
 mod auth;
 mod error;
+mod events;
 mod read;
 mod state;
 mod write;
@@ -65,9 +66,17 @@ impl Server {
         };
         let state = AppState::new(store, token.as_str());
 
-        let api = read::routes().merge(write::routes()).route_layer(
-            axum::middleware::from_fn_with_state(state.clone(), auth::require_token),
-        );
+        let api = read::routes()
+            .merge(write::routes())
+            .merge(events::routes())
+            .route_layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_token,
+            ));
+
+        // One watcher per server, not one per client: ten open tabs must not mean ten
+        // pollers on the same file.
+        events::watch(state.clone(), state.changes());
 
         let router = Router::new()
             .nest("/api", api)

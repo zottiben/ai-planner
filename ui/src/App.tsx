@@ -6,6 +6,7 @@ import { Drawer } from "./Drawer";
 import { ago } from "./format";
 import { useResource } from "./hooks";
 import { Logo } from "./icons";
+import { useLive } from "./live";
 import { aboutPath, navigate, parse, planPath, slicePath, usePath } from "./router";
 import { Rundown } from "./Rundown";
 import { Sidebar } from "./Sidebar";
@@ -18,9 +19,13 @@ export function App() {
   const route = useMemo(() => parse(path), [path]);
   const [search, setSearch] = useState("");
 
+  // Every read depends on the liveness generation, so an agent writing from another
+  // process refreshes what is on screen without anyone reaching for reload.
+  const { generation, connection } = useLive();
+
   const meta = useResource(() => api.meta(), []);
-  const repos = useResource(() => api.repos(), []);
-  const plans = useResource(() => api.plans(), []);
+  const repos = useResource(() => api.repos(), [generation]);
+  const plans = useResource(() => api.plans(), [generation]);
 
   const plan = useMemo(
     () => plans.data?.find((p) => p.slug === route.planSlug),
@@ -29,7 +34,7 @@ export function App() {
 
   const board = useResource(
     () => (plan ? api.board(plan.id) : Promise.resolve(undefined)),
-    [plan?.id],
+    [plan?.id, generation],
   );
 
   // A move the server has not confirmed yet. The board renders through it so a drag
@@ -159,8 +164,9 @@ export function App() {
                 >
                   Plan
                 </button>
-                <span className="tab" style={{ marginLeft: "auto", cursor: "default" }}>
-                  updated {ago(plan.updated_at)}
+                <span className="tab connection" style={{ marginLeft: "auto" }}>
+                  <span className={`live-dot is-${connection}`} />
+                  {connection === "live" ? `updated ${ago(plan.updated_at)}` : connection}
                 </span>
               </div>
             </header>
@@ -168,6 +174,7 @@ export function App() {
             {route.tab === "plan" ? (
               <Rundown
                 planId={plan.id}
+                generation={generation}
                 onOpenSlice={(key) => navigate(slicePath(plan.slug, key))}
               />
             ) : (
@@ -193,6 +200,7 @@ export function App() {
                 slice={openTicket}
                 planId={plan.id}
                 statuses={meta.data.statuses}
+                generation={generation}
                 onChanged={refreshAll}
                 onMove={move}
                 onClose={() => navigate(planPath(plan.slug))}

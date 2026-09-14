@@ -19,13 +19,23 @@ interface Props {
   slice: Slice;
   planId: number;
   statuses: StatusMeta[];
+  /** Bumped when another process writes, so an open ticket follows along too. */
+  generation: number;
   onChanged: () => void;
   onMove: (slice: Slice, to: Status) => void;
   onClose: () => void;
 }
 
-export function Drawer({ slice, planId, statuses, onChanged, onMove, onClose }: Props) {
-  const detail = useResource(() => api.slice(slice.id), [slice.id]);
+export function Drawer({
+  slice,
+  planId,
+  statuses,
+  generation,
+  onChanged,
+  onMove,
+  onClose,
+}: Props) {
+  const detail = useResource(() => api.slice(slice.id), [slice.id, generation]);
   const panel = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const [busy, setBusy] = useState(false);

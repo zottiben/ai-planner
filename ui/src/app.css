@@ -1349,3 +1349,36 @@ a:hover {
     opacity: 0;
   }
 }
+
+/* ---- liveness ---------------------------------------------------------------- */
+
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: default;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--done);
+}
+
+/* Never a green dot over a dead stream: the colour is the truth, not decoration. */
+.live-dot.is-connecting {
+  background: var(--text-faint);
+}
+
+.live-dot.is-reconnecting {
+  background: var(--blocked);
+  animation: blink 1s ease-in-out infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}

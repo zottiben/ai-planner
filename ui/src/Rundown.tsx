@@ -16,12 +16,14 @@ import type { Decision, Gotcha, LogEntry, PlanBundle, Question, Slice } from "./
 
 export function Rundown({
   planId,
+  generation,
   onOpenSlice,
 }: {
   planId: number;
+  generation: number;
   onOpenSlice: (key: string) => void;
 }) {
-  const bundle = useResource(() => api.plan(planId), [planId]);
+  const bundle = useResource(() => api.plan(planId), [planId, generation]);
 
   if (bundle.error) {
     return (

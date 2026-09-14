@@ -15,6 +15,10 @@ use ai_planner_ui::{ServeOptions, Server};
 struct Harness {
     addr: SocketAddr,
     token: String,
+    /// Kept so a test can open a *second* `Store` on the same file - the only way to
+    /// exercise the cross-process liveness path, since `data_version` only moves when
+    /// another connection commits.
+    db: std::path::PathBuf,
     _runtime: tokio::runtime::Runtime,
     _dir: tempfile::TempDir,
 }
@@ -45,6 +49,7 @@ impl Harness {
         Harness {
             addr,
             token,
+            db: path,
             _runtime: runtime,
             _dir: dir,
         }
@@ -656,4 +661,115 @@ fn writes_need_the_token_too() {
         "ready",
         "an unauthenticated write must not land"
     );
+}
+
+// -- liveness -------------------------------------------------------------------
+
+impl Harness {
+    /// Open the SSE stream and collect whatever arrives within `window`, then give up.
+    /// The socket is read with a timeout because the stream never ends on its own.
+    fn listen(&self, window: std::time::Duration) -> String {
+        let mut stream = TcpStream::connect(self.addr).unwrap();
+        write!(
+            stream,
+            "GET /api/events?t={} HTTP/1.1\r\nHost: {}\r\nAccept: text/event-stream\r\n\r\n",
+            self.token, self.addr
+        )
+        .unwrap();
+        stream.set_read_timeout(Some(window)).unwrap();
+
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(_) => break, // the read timed out, which is how this always ends
+            }
+        }
+        String::from_utf8_lossy(&buf).to_string()
+    }
+
+    /// Write to the same database from a second `Store`, the way an agent or the CLI
+    /// would - a different connection, which is the only case `data_version` reports.
+    fn write_from_another_process(&self, f: impl FnOnce(&mut Store)) {
+        let mut store = Store::open(&self.db).unwrap();
+        f(&mut store);
+    }
+}
+
+#[test]
+fn a_write_from_another_connection_reaches_the_stream() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+
+    let listener = {
+        let addr = h.addr;
+        let token = h.token.clone();
+        std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            write!(
+                stream,
+                "GET /api/events?t={token} HTTP/1.1\r\nHost: {addr}\r\nAccept: text/event-stream\r\n\r\n"
+            )
+            .unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(4)))
+                .unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 1024];
+            while let Ok(n) = stream.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                if String::from_utf8_lossy(&buf).contains("event: changed") {
+                    break;
+                }
+            }
+            String::from_utf8_lossy(&buf).to_string()
+        })
+    };
+
+    // Give the subscription time to land before making the change it should report.
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    h.write_from_another_process(|store| {
+        let plan = store.list_plans(&Default::default()).unwrap().remove(0);
+        let slice = store.require_slice(plan.id, "PR3").unwrap();
+        store
+            .set_slice_status(&slice, Status::Active, None)
+            .unwrap();
+    });
+
+    let received = listener.join().unwrap();
+    assert!(
+        received.contains("event: changed"),
+        "an agent writing from another process must reach the board; got: {received:?}"
+    );
+    assert!(received.to_lowercase().contains("text/event-stream"));
+}
+
+#[test]
+fn the_stream_stays_quiet_when_nothing_changes() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+
+    // Long enough for several watcher ticks. A stream that announces on a timer rather
+    // than on a change is a stream that refetches the board forever.
+    let received = h.listen(std::time::Duration::from_millis(1600));
+    assert!(
+        !received.contains("event: changed"),
+        "nothing was written, so nothing should have been announced; got: {received:?}"
+    );
+}
+
+#[test]
+fn the_event_stream_needs_the_token_like_everything_else() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let refused = h.get_anonymous("/api/events");
+    assert_eq!(refused.status, 401);
 }

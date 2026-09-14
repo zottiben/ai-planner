@@ -14,6 +14,11 @@ export interface Resource<T> {
   reload: () => void;
 }
 
+/**
+ * @param deps Re-fetch when any of these change. Pass a liveness generation here to
+ *   follow out-of-process writes - the previous value stays on screen while the next
+ *   one loads, so a live update does not blink the board out of existence.
+ */
 export function useResource<T>(
   fetcher: () => Promise<T>,
   deps: readonly unknown[],
