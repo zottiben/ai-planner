@@ -11,17 +11,29 @@ import type { Slice } from "./types";
 interface Props {
   slice: Slice;
   current: boolean;
+  dragging: boolean;
   onOpen: (slice: Slice) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }
 
-export function Card({ slice, current, onOpen }: Props) {
+export function Card({ slice, current, dragging, onOpen, onDragStart, onDragEnd }: Props) {
   const claim = slice.claimed_by;
   return (
     <button
-      className={`card${current ? " is-current" : ""}`}
+      className={`card${current ? " is-current" : ""}${dragging ? " is-dragging" : ""}`}
       style={{ borderLeftColor: statusColour(slice.status) }}
       onClick={() => onOpen(slice)}
       aria-current={current ? "true" : undefined}
+      draggable
+      onDragStart={(event) => {
+        // Some browsers refuse to start a drag with an empty data transfer, and the
+        // key is genuinely useful if a card is ever dropped outside the app.
+        event.dataTransfer.setData("text/plain", slice.key);
+        event.dataTransfer.effectAllowed = "move";
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
     >
       <span className="card-top">
         <span className="card-key">{slice.key}</span>

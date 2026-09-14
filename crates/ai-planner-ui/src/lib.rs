@@ -11,6 +11,7 @@ mod auth;
 mod error;
 mod read;
 mod state;
+mod write;
 
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -64,10 +65,9 @@ impl Server {
         };
         let state = AppState::new(store, token.as_str());
 
-        let api = read::routes().route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            auth::require_token,
-        ));
+        let api = read::routes().merge(write::routes()).route_layer(
+            axum::middleware::from_fn_with_state(state.clone(), auth::require_token),
+        );
 
         let router = Router::new()
             .nest("/api", api)

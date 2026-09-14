@@ -371,3 +371,289 @@ fn the_real_frontend_is_compiled_into_the_binary() {
     assert_eq!(styles.status, 200);
     assert!(styles.head.contains("text/css"));
 }
+
+// -- writes ---------------------------------------------------------------------
+
+impl Harness {
+    fn post(&self, path: &str, body: serde_json::Value) -> Response {
+        self.send("POST", path, body)
+    }
+
+    fn patch(&self, path: &str, body: serde_json::Value) -> Response {
+        self.send("PATCH", path, body)
+    }
+
+    fn send(&self, method: &str, path: &str, body: serde_json::Value) -> Response {
+        let payload = body.to_string();
+        let mut stream = TcpStream::connect(self.addr).unwrap();
+        write!(
+            stream,
+            "{method} {path} HTTP/1.1\r\nHost: {}\r\nx-planner-token: {}\r\n\
+             content-type: application/json\r\ncontent-length: {}\r\n\
+             Connection: close\r\n\r\n{payload}",
+            self.addr,
+            self.token,
+            payload.len()
+        )
+        .unwrap();
+
+        let mut raw = String::new();
+        stream.read_to_string(&mut raw).unwrap();
+        let (head, body) = raw.split_once("\r\n\r\n").expect("a complete response");
+        let status = head
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|code| code.parse().ok())
+            .expect("a status line");
+        Response {
+            status,
+            head: head.to_lowercase(),
+            body: body.to_string(),
+        }
+    }
+
+    /// The id of a slice by key, through the API rather than around it.
+    fn slice_id(&self, key: &str) -> i64 {
+        let plan_id = self.get("/api/plans").json()[0]["id"].as_i64().unwrap();
+        self.get(&format!("/api/plans/{plan_id}/board")).json()["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|c| c["slices"].as_array().unwrap().clone())
+            .find(|s| s["key"] == key)
+            .map(|s| s["id"].as_i64().unwrap())
+            .unwrap_or_else(|| panic!("no slice {key}"))
+    }
+
+    fn plan_id(&self) -> i64 {
+        self.get("/api/plans").json()[0]["id"].as_i64().unwrap()
+    }
+}
+
+#[test]
+fn dragging_a_card_moves_the_slice_and_records_it() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.slice_id("PR3");
+
+    let moved = h.post(
+        &format!("/api/slices/{id}/status"),
+        serde_json::json!({"status": "active"}),
+    );
+    assert_eq!(moved.status, 200);
+    assert_eq!(moved.json()["status"], "active");
+
+    // The status change is a log entry in the same transaction, so history survives
+    // without anyone remembering to write it.
+    let detail = h.get(&format!("/api/slices/{id}")).json();
+    assert_eq!(detail["slice"]["status"], "active");
+    assert!(detail["log"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["kind"] == "status"));
+}
+
+#[test]
+fn blocking_without_a_reason_is_refused_rather_than_recorded_blank() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.slice_id("PR3");
+
+    let bare = h.post(
+        &format!("/api/slices/{id}/status"),
+        serde_json::json!({"status": "blocked"}),
+    );
+    assert_eq!(bare.status, 400);
+    assert_eq!(bare.json()["code"], "bad_request");
+
+    let with_reason = h.post(
+        &format!("/api/slices/{id}/status"),
+        serde_json::json!({"status": "blocked", "reason": "waiting on the lender sandbox"}),
+    );
+    assert_eq!(with_reason.status, 200);
+    assert_eq!(
+        with_reason.json()["blocked_reason"],
+        "waiting on the lender sandbox"
+    );
+}
+
+#[test]
+fn a_claim_another_worktree_holds_is_refused_and_names_the_holder() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.slice_id("PR3");
+
+    let mine = h.post(
+        &format!("/api/slices/{id}/claim"),
+        serde_json::json!({"worktree": "/tmp/widget-a"}),
+    );
+    assert_eq!(mine.status, 200);
+    assert_eq!(mine.json()["worktree_path"], "/tmp/widget-a");
+
+    // Same actor, different worktree: a genuine clash, not a re-claim.
+    let theirs = h.post(
+        &format!("/api/slices/{id}/claim"),
+        serde_json::json!({"worktree": "/tmp/widget-b"}),
+    );
+    assert_eq!(theirs.status, 409);
+
+    let body = theirs.json();
+    assert_eq!(body["code"], "already_claimed");
+    // The whole point: the board can say who and where, not merely "failed".
+    assert_eq!(body["slice"], "PR3");
+    assert_eq!(body["worktree"], "/tmp/widget-a");
+    assert!(body["holder"].as_str().is_some_and(|h| !h.is_empty()));
+}
+
+#[test]
+fn releasing_hands_a_slice_back() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.slice_id("PR3");
+
+    h.post(
+        &format!("/api/slices/{id}/claim"),
+        serde_json::json!({"worktree": "/tmp/widget-a"}),
+    );
+    let released = h.post(&format!("/api/slices/{id}/release"), serde_json::json!({}));
+    assert_eq!(released.status, 200);
+    assert!(released.json()["claimed_by"].is_null());
+
+    let retaken = h.post(
+        &format!("/api/slices/{id}/claim"),
+        serde_json::json!({"worktree": "/tmp/widget-b"}),
+    );
+    assert_eq!(retaken.status, 200, "a released slice is anyone's to take");
+}
+
+#[test]
+fn claiming_fills_the_branch_in_but_never_overwrites_the_planned_one() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.slice_id("PR3");
+
+    h.patch(
+        &format!("/api/slices/{id}"),
+        serde_json::json!({"branch": "planned/branch"}),
+    );
+    let claimed = h.post(
+        &format!("/api/slices/{id}/claim"),
+        serde_json::json!({"worktree": "/tmp/w", "branch": "whatever-im-on"}),
+    );
+
+    assert_eq!(
+        claimed.json()["branch"],
+        "planned/branch",
+        "rule 14 - a slice claimed from the wrong branch must keep pointing at its own work"
+    );
+}
+
+#[test]
+fn a_patch_leaves_the_fields_it_does_not_mention_alone() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.slice_id("PR3");
+
+    h.patch(
+        &format!("/api/slices/{id}"),
+        serde_json::json!({"pr_url": "https://example.com/acme/widget/pull/9"}),
+    );
+    let after = h.patch(
+        &format!("/api/slices/{id}"),
+        serde_json::json!({"estimate_files": 4}),
+    );
+
+    assert_eq!(after.json()["estimate_files"], 4);
+    assert_eq!(
+        after.json()["pr_url"],
+        "https://example.com/acme/widget/pull/9",
+        "two people editing different attributes must not clobber each other"
+    );
+    assert_eq!(after.json()["title"], "Polish it");
+    assert_eq!(after.json()["scope_md"], "What PR3 covers.");
+}
+
+#[test]
+fn a_note_lands_against_its_slice_and_an_empty_one_is_refused() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let plan_id = h.plan_id();
+
+    let blank = h.post(
+        &format!("/api/plans/{plan_id}/log"),
+        serde_json::json!({"body": "   "}),
+    );
+    assert_eq!(blank.status, 400);
+
+    let noted = h.post(
+        &format!("/api/plans/{plan_id}/log"),
+        serde_json::json!({"body": "the sandbox came back", "slice": "PR3"}),
+    );
+    assert_eq!(noted.status, 200);
+
+    let detail = h.get(&format!("/api/slices/{}", h.slice_id("PR3"))).json();
+    assert!(detail["log"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["body"] == "the sandbox came back"));
+}
+
+#[test]
+fn an_unknown_status_is_a_bad_request_not_a_corrupt_row() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.slice_id("PR3");
+
+    let nonsense = h.post(
+        &format!("/api/slices/{id}/status"),
+        serde_json::json!({"status": "nearly"}),
+    );
+    assert_eq!(nonsense.status, 400);
+    assert_eq!(
+        h.get(&format!("/api/slices/{id}")).json()["slice"]["status"],
+        "ready"
+    );
+}
+
+#[test]
+fn writes_need_the_token_too() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.slice_id("PR3");
+
+    let payload = serde_json::json!({"status": "done"}).to_string();
+    let mut stream = TcpStream::connect(h.addr).unwrap();
+    write!(
+        stream,
+        "POST /api/slices/{id}/status HTTP/1.1\r\nHost: {}\r\ncontent-type: application/json\r\n\
+         content-length: {}\r\nConnection: close\r\n\r\n{payload}",
+        h.addr,
+        payload.len()
+    )
+    .unwrap();
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).unwrap();
+
+    assert!(
+        raw.starts_with("HTTP/1.1 401"),
+        "got: {}",
+        &raw[..40.min(raw.len())]
+    );
+    assert_eq!(
+        h.get(&format!("/api/slices/{id}")).json()["slice"]["status"],
+        "ready",
+        "an unauthenticated write must not land"
+    );
+}

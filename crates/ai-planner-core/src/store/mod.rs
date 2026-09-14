@@ -123,6 +123,18 @@ impl Store {
             .ok_or_else(|| crate::error::Error::UnknownRepo(ctx.repo_key.clone()))
     }
 
+    pub fn repo_by_id(&self, id: i64) -> Result<Option<Repo>> {
+        Ok(self
+            .db
+            .conn()
+            .query_row(
+                "SELECT id, key, name, remote_url, main_path, created_at FROM repo WHERE id = ?1",
+                [id],
+                row_to_repo,
+            )
+            .optional()?)
+    }
+
     pub fn find_repo(&self, key: &str) -> Result<Option<Repo>> {
         Ok(self
             .db

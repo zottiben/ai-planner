@@ -1163,3 +1163,189 @@ a:hover {
 .drawer:focus-visible {
   outline: none;
 }
+
+/* ---- drag and drop ----------------------------------------------------------- */
+
+.card {
+  cursor: grab;
+}
+
+.card.is-dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.column.is-target {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-sunken));
+}
+
+.column.is-target .column-title,
+.column.is-target .column-empty {
+  color: var(--accent);
+}
+
+/* ---- controls ---------------------------------------------------------------- */
+
+.button {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  white-space: nowrap;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.drawer-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.status-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-select select {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.status-select select:hover {
+  border-color: var(--line-strong);
+}
+
+.status-select select:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* The option list is drawn by the OS and does not inherit the page's colours, so it
+   is set explicitly or dark mode gives black text on a black menu. */
+.status-select option {
+  color: var(--text);
+  background: var(--bg-raised);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.note-box {
+  margin-bottom: 10px;
+}
+
+.note-box textarea {
+  width: 100%;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  resize: vertical;
+  min-height: 2.6em;
+}
+
+.note-box textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.note-box textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.note-box-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 5px;
+}
+
+/* ---- toasts ------------------------------------------------------------------ */
+
+.toaster {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  align-items: center;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: min(520px, 90vw);
+  padding: 8px 13px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  animation: rise 0.16s ease;
+}
+
+.toast b {
+  font-weight: 600;
+}
+
+.toast span {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.toast.tone-error {
+  border-color: var(--blocked);
+}
+
+.toast.tone-error b {
+  color: var(--blocked);
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}

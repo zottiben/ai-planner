@@ -5,13 +5,22 @@
 // imported from markdown keeps the shape of the document it came from (D3 in the
 // planner's own build plan) and reordering it here would throw that away.
 
+import { useState } from "react";
+
 import { api } from "./api";
 import { ago, exact } from "./format";
 import { useResource } from "./hooks";
 import { Markdown } from "./markdown";
+import { useToast } from "./Toast";
 import type { Decision, Gotcha, LogEntry, PlanBundle, Question, Slice } from "./types";
 
-export function Rundown({ planId, onOpenSlice }: { planId: number; onOpenSlice: (key: string) => void }) {
+export function Rundown({
+  planId,
+  onOpenSlice,
+}: {
+  planId: number;
+  onOpenSlice: (key: string) => void;
+}) {
   const bundle = useResource(() => api.plan(planId), [planId]);
 
   if (bundle.error) {
@@ -48,7 +57,9 @@ export function Rundown({ planId, onOpenSlice }: { planId: number; onOpenSlice: 
             {section.renders === "slices" && (
               <Slices slices={data.slices} onOpen={onOpenSlice} />
             )}
-            {section.renders === "questions" && <Questions questions={data.questions} />}
+            {section.renders === "questions" && (
+              <Questions questions={data.questions} onAnswered={bundle.reload} />
+            )}
             {section.renders === "gotchas" && <Gotchas gotchas={data.gotchas} />}
             {section.renders === "log" && <Log log={data.log} />}
             {section.renders === "sources" && (
@@ -124,7 +135,13 @@ function Slices({ slices, onOpen }: { slices: Slice[]; onOpen: (key: string) => 
   );
 }
 
-function Questions({ questions }: { questions: Question[] }) {
+function Questions({
+  questions,
+  onAnswered,
+}: {
+  questions: Question[];
+  onAnswered: () => void;
+}) {
   if (questions.length === 0) return <p className="faint">Nothing outstanding.</p>;
   return (
     <div className="stack">
@@ -137,13 +154,65 @@ function Questions({ questions }: { questions: Question[] }) {
             {question.slice_key && <span className="tag">{question.slice_key}</span>}
             {question.body}
           </p>
-          {question.answer && (
+          {question.answer ? (
             <div className="answer">
               <Markdown source={question.answer} className="tight" />
             </div>
+          ) : (
+            <AnswerBox id={question.id} onAnswered={onAnswered} />
           )}
         </section>
       ))}
+    </div>
+  );
+}
+
+/** These are the questions only a person can settle, and this is a person looking at
+ *  them - so answering is one box away rather than a trip to the terminal. */
+function AnswerBox({ id, onAnswered }: { id: number; onAnswered: () => void }) {
+  const [answer, setAnswer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  const send = async () => {
+    const text = answer.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    try {
+      await api.answerQuestion(id, text);
+      setAnswer("");
+      onAnswered();
+    } catch (error) {
+      toast.blame(error, "Could not save the answer");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="note-box">
+      <textarea
+        value={answer}
+        rows={2}
+        placeholder="Answer it…"
+        aria-label="Answer"
+        disabled={busy}
+        onChange={(event) => setAnswer(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            void send();
+          }
+        }}
+      />
+      {answer.trim() !== "" && (
+        <div className="note-box-foot">
+          <span className="faint small">⌘↵ to save</span>
+          <button className="button primary" disabled={busy} onClick={() => void send()}>
+            Answer
+          </button>
+        </div>
+      )}
     </div>
   );
 }

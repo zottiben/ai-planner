@@ -5,24 +5,30 @@
 // scanned rather than read. The slice's own log is last, because it answers "what
 // happened" only once you know what the thing is.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api } from "./api";
 import { ago, exact, prLabel, statusColour } from "./format";
 import { useResource } from "./hooks";
 import { Branch, Person, PullRequest } from "./icons";
 import { Markdown } from "./markdown";
-import type { Slice, StatusMeta } from "./types";
+import { useToast } from "./Toast";
+import type { Slice, Status, StatusMeta } from "./types";
 
 interface Props {
   slice: Slice;
+  planId: number;
   statuses: StatusMeta[];
+  onChanged: () => void;
+  onMove: (slice: Slice, to: Status) => void;
   onClose: () => void;
 }
 
-export function Drawer({ slice, statuses, onClose }: Props) {
+export function Drawer({ slice, planId, statuses, onChanged, onMove, onClose }: Props) {
   const detail = useResource(() => api.slice(slice.id), [slice.id]);
   const panel = useRef<HTMLDivElement>(null);
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -38,10 +44,28 @@ export function Drawer({ slice, statuses, onClose }: Props) {
     panel.current?.focus();
   }, [slice.id]);
 
-  const status = statuses.find((s) => s.value === slice.status);
   // The board's copy of the slice is already on screen, so it renders immediately and
   // the fetched copy replaces it. The drawer never shows a spinner over data it has.
   const current = detail.data?.slice ?? slice;
+
+  /** Run a mutation, then reload both the drawer and the board behind it.
+   *
+   *  The reload happens on failure too, and deliberately: a refusal is nearly always
+   *  the news that somebody else changed this underneath us, so the screen is stale in
+   *  exactly the moment it most matters. Leaving it showing "Claim" for a slice that is
+   *  now held would invite the same click again. */
+  const act = async (what: string, run: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await run();
+    } catch (error) {
+      toast.blame(error, what);
+    } finally {
+      setBusy(false);
+      detail.reload();
+      onChanged();
+    }
+  };
 
   return (
     <>
@@ -56,15 +80,59 @@ export function Drawer({ slice, statuses, onClose }: Props) {
         <header className="drawer-head">
           <div className="drawer-head-row">
             <span className="card-key">{current.key}</span>
-            <span className="status-pill" style={{ color: statusColour(current.status) }}>
+            <label className="status-select" style={{ color: statusColour(current.status) }}>
               <span className="dot" style={{ background: statusColour(current.status) }} />
-              {status?.label ?? current.status}
-            </span>
+              <select
+                value={current.status}
+                disabled={busy}
+                aria-label="Status"
+                onChange={(event) => onMove(current, event.target.value as Status)}
+              >
+                {statuses.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button className="icon-button" onClick={onClose} aria-label="Close" title="Close (Esc)">
               ✕
             </button>
           </div>
           <h2>{current.title}</h2>
+
+          <div className="drawer-actions">
+            {current.claimed_by ? (
+              <button
+                className="button"
+                disabled={busy}
+                onClick={() => act(`Could not release ${current.key}`, () => api.release(current.id))}
+              >
+                Release
+              </button>
+            ) : (
+              <button
+                className="button primary"
+                disabled={busy}
+                onClick={() => act(`Could not claim ${current.key}`, () => api.claim(current.id))}
+              >
+                Claim
+              </button>
+            )}
+            <button
+              className="button"
+              disabled={busy}
+              onClick={() => {
+                const url = window.prompt("Pull request URL", current.pr_url ?? "");
+                if (url === null) return;
+                void act("Could not save the pull request link", () =>
+                  api.editSlice(current.id, { pr_url: url.trim() }),
+                );
+              }}
+            >
+              {current.pr_url ? "Change PR link" : "Link a PR"}
+            </button>
+          </div>
         </header>
 
         <div className="drawer-body">
@@ -133,6 +201,14 @@ export function Drawer({ slice, statuses, onClose }: Props) {
           </Field>
 
           <Field label={`Progress${detail.data ? ` (${detail.data.log.length})` : ""}`}>
+            <NoteBox
+              busy={busy}
+              onSubmit={(body) =>
+                act("Could not save the note", () =>
+                  api.addNote(planId, body, current.key),
+                )
+              }
+            />
             {detail.error && <p className="faint">{detail.error.message}</p>}
             {detail.data?.log.length === 0 && <p className="faint">Nothing recorded yet.</p>}
             <ol className="log">
@@ -151,6 +227,55 @@ export function Drawer({ slice, statuses, onClose }: Props) {
         </div>
       </aside>
     </>
+  );
+}
+
+/** A note, written where the work is. The log is append-only and cannot conflict, so
+ *  there is never a reason to batch these up - which is exactly why this box is here
+ *  rather than behind a dialog. */
+function NoteBox({
+  busy,
+  onSubmit,
+}: {
+  busy: boolean;
+  onSubmit: (body: string) => Promise<void>;
+}) {
+  const [body, setBody] = useState("");
+
+  const send = async () => {
+    const text = body.trim();
+    if (!text || busy) return;
+    await onSubmit(text);
+    setBody("");
+  };
+
+  return (
+    <div className="note-box">
+      <textarea
+        value={body}
+        rows={2}
+        placeholder="Record what happened…"
+        aria-label="Progress note"
+        disabled={busy}
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={(event) => {
+          // Enter inserts a newline, because notes are markdown and often more than
+          // one line. Cmd/Ctrl-Enter sends, which is what every other note box does.
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            void send();
+          }
+        }}
+      />
+      {body.trim() !== "" && (
+        <div className="note-box-foot">
+          <span className="faint small">⌘↵ to save</span>
+          <button className="button primary" disabled={busy} onClick={() => void send()}>
+            Save note
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

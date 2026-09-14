@@ -10,10 +10,13 @@ import type {
   BoardColumn,
   LogEntry,
   Meta,
+  Plan,
   PlanBundle,
   PlanSummary,
   RepoSummary,
+  Slice,
   SliceDetail,
+  Status,
 } from "./types";
 
 const TOKEN_KEY = "ai-planner.token";
@@ -100,4 +103,20 @@ export const api = {
   planLog: (id: number, limit?: number) =>
     request<LogEntry[]>(`/plans/${id}/log${limit ? `?limit=${limit}` : ""}`),
   slice: (id: number) => request<SliceDetail>(`/slices/${id}`),
+
+  setSliceStatus: (id: number, status: Status, reason?: string) =>
+    post<Slice>(`/slices/${id}/status`, { status, reason }),
+  claim: (id: number, worktree?: string) => post<Slice>(`/slices/${id}/claim`, { worktree }),
+  release: (id: number) => post<Slice>(`/slices/${id}/release`, {}),
+  editSlice: (id: number, patch: Partial<Slice>) =>
+    request<Slice>(`/slices/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  addNote: (planId: number, body: string, slice?: string, kind?: string) =>
+    post<{ id: number }>(`/plans/${planId}/log`, { body, slice, kind }),
+  setPlanStatus: (id: number, status: Status) => post<Plan>(`/plans/${id}/status`, { status }),
+  answerQuestion: (id: number, answer: string) =>
+    post<{ ok: boolean }>(`/questions/${id}/answer`, { answer }),
 };
+
+function post<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: "POST", body: JSON.stringify(body) });
+}
