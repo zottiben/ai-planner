@@ -339,3 +339,35 @@ fn the_bundle_is_never_cached_so_an_upgrade_is_not_a_hard_refresh() {
         "the bundle ships with the binary, so a stale copy is a version mismatch"
     );
 }
+
+#[test]
+fn the_real_frontend_is_compiled_into_the_binary() {
+    // The point of D2: no dev server, no node at run time, no `dist` directory to
+    // find on disk. If this fails, `aip ui` serves an apology instead of a board.
+    let bundle = ai_planner_ui::bundle();
+    assert!(
+        bundle.embedded,
+        "no frontend bundle - run `npm ci && npm run build` in ui/ and rebuild"
+    );
+
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+
+    let index = h.get_anonymous("/");
+    assert!(
+        index.body.contains("<div id=\"root\">"),
+        "that is not the React app"
+    );
+
+    let script = h.get_anonymous("/app.js");
+    assert_eq!(script.status, 200);
+    assert!(
+        script.head.contains("text/javascript"),
+        "a bundle served as octet-stream will not execute"
+    );
+
+    let styles = h.get_anonymous("/index.css");
+    assert_eq!(styles.status, 200);
+    assert!(styles.head.contains("text/css"));
+}

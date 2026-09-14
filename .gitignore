@@ -1,4 +1,10 @@
 /target
+node_modules/
+
+# ui/dist is deliberately NOT ignored. The bundle is compiled into the binary so that
+# `cargo install` works with a Rust toolchain and nothing else (D2), which means the
+# built output has to be in the repo - the same bargain rule 16 makes for the skill.
+
 *.db
 *.db-wal
 *.db-shm

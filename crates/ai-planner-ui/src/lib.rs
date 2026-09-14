@@ -23,6 +23,22 @@ pub use auth::{TOKEN_HEADER, TOKEN_QUERY};
 pub use error::{Error, Result};
 pub use state::AppState;
 
+/// What the binary was built with. `aip doctor` reports it, because a binary compiled
+/// without a frontend bundle serves an explanation instead of a board, and that is
+/// worth knowing before you go looking for the bug elsewhere.
+pub fn bundle() -> Bundle {
+    Bundle {
+        embedded: assets::is_embedded(),
+        files: assets::len(),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Bundle {
+    pub embedded: bool,
+    pub files: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ServeOptions {
     /// 0 asks the OS for a free one, so two boards never fight over a number (D5).

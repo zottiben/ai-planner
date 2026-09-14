@@ -184,6 +184,22 @@ pub fn doctor(app: &mut App) -> Result<()> {
         )),
     }
 
+    // The board is compiled in (D2), so whether it is there is a property of this
+    // binary rather than of the machine. A build without node produces one that serves
+    // an explanation instead of a board, and that should not be a surprise.
+    let bundle = ai_planner_ui::bundle();
+    if bundle.embedded {
+        checks.push(Check::Ok(format!(
+            "board bundled ({} files) - aip ui",
+            bundle.files
+        )));
+    } else {
+        checks.push(Check::Warn(
+            "this binary has no board bundle - `aip ui` will explain rather than run".into(),
+            "build it with: cd ui && npm ci && npm run build, then cargo install --path .".into(),
+        ));
+    }
+
     let rows = app.store.search_rows()?;
     if rows == 0 {
         checks.push(Check::Warn(
