@@ -243,21 +243,31 @@ impl Store {
         let rows = stmt.query_map(params![slug, ticket, numeric, like], row_to_plan)?;
         let all: Vec<Plan> = rows.collect::<rusqlite::Result<Vec<_>>>()?;
 
-        // An exact hit is never ambiguous, whatever else also matched loosely.
+        // An exact hit is never ambiguous, whatever else also matched loosely. A ticket
+        // key only matches when the needle is one: compared as options, a plan with no
+        // ticket "matched" a needle that is not a ticket, and every such plan counted as
+        // exact - so a plan's own slug was ambiguous beside any other plan it prefixed.
         let exact: Vec<Plan> = all
             .iter()
             .filter(|p| {
                 p.slug == slug
-                    || p.ticket_key.as_deref().map(str::to_uppercase) == ticket
+                    || ticket.is_some() && p.ticket_key.as_deref().map(str::to_uppercase) == ticket
                     || Some(p.id) == numeric
             })
+            .cloned()
+            .collect();
+        // This repo's own first: two repos can each have a plan of one name. With none
+        // here, a plan of that exact name elsewhere is still more precise than any loose
+        // match - and two of them elsewhere are a question, not a pick.
+        let here: Vec<Plan> = exact
+            .iter()
             .filter(|p| repo_id.is_none() || Some(p.repo_id) == repo_id || exact_is_global(needle))
             .cloned()
             .collect();
-        if exact.len() == 1 {
-            return Ok(exact);
+        if !here.is_empty() {
+            return Ok(here);
         }
-        if exact.len() > 1 {
+        if !exact.is_empty() {
             return Ok(exact);
         }
         Ok(all)

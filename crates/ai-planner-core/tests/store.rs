@@ -37,6 +37,22 @@ impl Fixture {
         }
     }
 
+    /// Register another repo, and say its id.
+    fn repo(&self, key: &str) -> i64 {
+        let name = key.rsplit('/').next().unwrap();
+        self.store()
+            .db()
+            .conn()
+            .query_row(
+                "INSERT INTO repo (key, name, created_at)
+                 VALUES (?1, ?2, '2026-01-01T00:00:00Z')
+                 RETURNING id",
+                [key, name],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
     fn store(&self) -> Store {
         Store::open(&self.path).unwrap()
     }
@@ -126,6 +142,44 @@ fn an_ambiguous_reference_is_an_error_rather_than_a_guess() {
     seed_plan(&mut store, fx.repo_id, "Accounts V2 exports");
 
     let err = store.find_plan("accounts v2", Some(fx.repo_id));
+    assert!(matches!(err, Err(Error::AmbiguousPlan(_, 2, _))), "{err:?}");
+}
+
+#[test]
+fn a_plans_exact_name_finds_it_even_when_another_plans_name_contains_it() {
+    // Neither has a ticket key. "shout" is one plan's slug and a prefix of the other's, and
+    // the plan that is exactly called that is the one meant - from inside the repo and
+    // from outside it.
+    let fx = Fixture::new();
+    let mut store = fx.store();
+    let shout = seed_plan(&mut store, fx.repo_id, "Shout");
+    seed_plan(&mut store, fx.repo_id, "Shout greetings");
+
+    for repo in [Some(fx.repo_id), None] {
+        let found = store.find_plan("shout", repo).unwrap();
+        assert_eq!(
+            found.id, shout.id,
+            "looking up \"shout\" with repo {repo:?}"
+        );
+    }
+    // A reference that is nobody's exact name is still a question, not a guess.
+    let err = store.find_plan("sho", Some(fx.repo_id));
+    assert!(matches!(err, Err(Error::AmbiguousPlan(_, 2, _))), "{err:?}");
+
+    // Asked from another repo with no plan of that name, the one plan that has it is
+    // still meant - more than one that merely starts with it.
+    let other = fx.repo("github.com/acme/other");
+    assert_eq!(store.find_plan("shout", Some(other)).unwrap().id, shout.id);
+    // Once that repo has its own, its own is the one meant there...
+    let theirs = seed_plan(&mut store, other, "Shout");
+    assert_eq!(store.find_plan("shout", Some(other)).unwrap().id, theirs.id);
+    assert_eq!(
+        store.find_plan("shout", Some(fx.repo_id)).unwrap().id,
+        shout.id
+    );
+    // ...and from a third repo, two plans of that name is a question again.
+    let third = fx.repo("github.com/acme/third");
+    let err = store.find_plan("shout", Some(third));
     assert!(matches!(err, Err(Error::AmbiguousPlan(_, 2, _))), "{err:?}");
 }
 
