@@ -187,3 +187,83 @@ fn a_plan_claimed_in_another_worktree_survives_until_the_delete_is_forced() {
     assert_eq!(report["plan"]["held"][0]["key"], "PR1");
     assert!(fx.plans().is_empty());
 }
+
+#[test]
+fn deleting_a_slice_leaves_the_plan_and_the_notes_it_wrote() {
+    let fx = fixture();
+    fx.ok(&["slice", "add", "PR2", "The variant"]);
+    fx.ok(&["log", "Core landed.", "--slice", "PR1"]);
+
+    // The report names the plan it resolved, which is the only thing standing between
+    // a key typed in the wrong worktree and a slice deleted out of the wrong plan.
+    let out = fx.ok(&["slice", "delete", "PR1", "--dry-run"]);
+    assert!(out.contains("acme-1234"), "{out}");
+    assert!(out.contains("Shared core"), "{out}");
+    assert!(out.contains("stay on the plan"), "{out}");
+    assert!(out.contains("nothing was deleted"), "{out}");
+
+    // Nothing said yes, and a test's stdin is not a terminal to ask at.
+    let err = fx.err(&["slice", "delete", "PR1"]);
+    assert!(err.contains("--yes"), "{err}");
+
+    let report = fx.json(&["slice", "delete", "PR1", "--yes"]);
+    assert_eq!(report["deleted"], true);
+    assert_eq!(report["slice"]["key"], "PR1");
+    assert_eq!(report["slice"]["plan_slug"], "acme-1234");
+    assert!(report["slice"]["detached_log_entries"].as_i64().unwrap() >= 1);
+
+    // The plan and its other slice are untouched.
+    assert_eq!(fx.plans(), vec!["acme-1234"]);
+    let keys: Vec<String> = fx
+        .json(&["slice", "ls"])
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["key"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(keys, vec!["PR2"]);
+
+    // The note outlives the slice, and the deletion recorded itself.
+    let log = fx.ok(&["logs", "-n", "20"]);
+    assert!(log.contains("Core landed."), "{log}");
+    assert!(log.contains("PR1 deleted - Shared core"), "{log}");
+
+    // And nothing in the index still answers for it.
+    assert!(fx
+        .json(&["find", "Shared", "core"])
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|hit| hit["kind"] != "slice"));
+}
+
+#[test]
+fn a_slice_claimed_in_another_worktree_survives_until_the_delete_is_forced() {
+    let fx = fixture();
+    let other = fx._dir.path().join("wt2");
+    git(
+        &fx.repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feat/core",
+            other.to_str().unwrap(),
+        ],
+    );
+    let out = Command::new(bin())
+        .args(["slice", "claim", "PR1"])
+        .env("AI_PLANNER_DB", &fx.db)
+        .current_dir(&other)
+        .output()
+        .expect("aip runs");
+    assert!(out.status.success(), "{out:?}");
+
+    let err = fx.err(&["slice", "delete", "PR1", "--yes"]);
+    assert!(err.contains("release it first"), "{err}");
+
+    let report = fx.json(&["slice", "delete", "PR1", "--yes", "--force"]);
+    assert_eq!(report["deleted"], true);
+    assert_eq!(report["slice"]["held"]["key"], "PR1");
+}

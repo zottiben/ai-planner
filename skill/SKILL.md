@@ -114,11 +114,14 @@ questions, progress log. `aip show` renders it back in that shape.
 Long bodies: pass `--file`, or pipe on stdin. Section writes take `--expect-rev` to
 refuse an overwrite if another agent changed it since you read it.
 
-## Deleting a plan
+## Deleting a plan, or one slice of it
 
 ```sh
 aip delete <plan> --dry-run   # exactly what would go
 aip delete <plan> --yes       # go through with it
+
+aip slice delete PR2 --dry-run  # a slice raised by mistake, or one that turned out
+aip slice delete PR2 --yes      # not to exist. The notes it wrote stay on the plan
 ```
 
 The one thing here that cannot be undone: the slices, decisions, notes, gotchas,
@@ -132,7 +135,12 @@ document first. A plan another worktree has claimed a slice on is refused until
 `--force`, because that is somebody else's live work.
 
 The MCP tool is `delete_plan`, and it takes `confirm` - the resolved plan's exact slug,
-repeated back - so a loose reference cannot carry off the wrong plan.
+repeated back - so a loose reference cannot carry off the wrong plan. There is no MCP
+tool for deleting a slice: use the CLI, and ask first.
+
+`aip slice delete` *does* work out the plan from the worktree, because a key on its own
+says nothing about which plan owns it - so read the plan slug it prints back before
+confirming. A slice another worktree holds is refused until `--force`.
 
 ## Finding a plan
 

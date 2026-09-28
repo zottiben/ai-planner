@@ -255,18 +255,19 @@ pub fn delete(app: &mut App, args: &DeleteArgs, plan_ref: Option<&str>) -> Resul
     Ok(())
 }
 
-/// Deleting is the one write that cannot be taken back, so an interactive caller
-/// types the slug out and everyone else has to have said `--yes` up front. A fuzzy
-/// reference that matched the wrong plan dies here rather than in the database.
-fn confirmed(slug: &str, json: bool) -> Result<bool> {
+/// Deleting is the one write that cannot be taken back, so an interactive caller types
+/// the name out and everyone else has to have said `--yes` up front. A fuzzy reference
+/// that matched the wrong thing dies here rather than in the database - which is why
+/// the name is typed rather than a bare y/n: it is only proof if it was read first.
+pub(super) fn confirmed(name: &str, json: bool) -> Result<bool> {
     if json || !std::io::stdin().is_terminal() {
-        anyhow::bail!("not an interactive terminal - pass --yes to delete {slug}");
+        anyhow::bail!("not an interactive terminal - pass --yes to delete {name}");
     }
-    print!("Type {} to delete it, anything else to stop: ", bold(slug));
+    print!("Type {} to delete it, anything else to stop: ", bold(name));
     std::io::stdout().flush()?;
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
-    Ok(line.trim() == slug)
+    Ok(line.trim() == name)
 }
 
 fn print_removal(r: &PlanRemoval) {
@@ -310,7 +311,7 @@ fn print_removal(r: &PlanRemoval) {
     );
 }
 
-fn plural(n: i64, one: &str, many: &str) -> Option<String> {
+pub(super) fn plural(n: i64, one: &str, many: &str) -> Option<String> {
     match n {
         0 => None,
         1 => Some(format!("1 {one}")),

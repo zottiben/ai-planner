@@ -1,10 +1,11 @@
 use ai_planner_core::render::slice_meta_line;
-use ai_planner_core::{NewSlice, SliceUpdate, Status};
+use ai_planner_core::{NewSlice, SliceRemoval, SliceUpdate, Status};
 use anyhow::Result;
 
+use super::plan::{confirmed, plural};
 use crate::app::App;
 use crate::cli::*;
-use crate::out::{dim, ok, status_colour, Table};
+use crate::out::{bold, dim, ok, status_colour, Table};
 use crate::read_body;
 
 pub fn run(app: &mut App, cmd: &SliceCmd, plan_ref: Option<&str>) -> Result<()> {
@@ -16,6 +17,7 @@ pub fn run(app: &mut App, cmd: &SliceCmd, plan_ref: Option<&str>) -> Result<()> 
         SliceCmd::Edit(args) => edit(app, args, plan_ref),
         SliceCmd::Claim { key } => claim(app, key, plan_ref),
         SliceCmd::Release { key } => release(app, key, plan_ref),
+        SliceCmd::Delete(args) => delete(app, args, plan_ref),
         SliceCmd::Stale => stale(app),
     }
 }
@@ -215,6 +217,101 @@ fn release(app: &mut App, key: &str, plan_ref: Option<&str>) -> Result<()> {
     let released = app.store.release_slice(&slice)?;
     ok(&format!("{} · {} released", plan.slug, released.key));
     Ok(())
+}
+
+/// Unlike `aip delete`, this *does* resolve the plan from the worktree, because a key
+/// on its own says nothing about which plan it belongs to and every other slice command
+/// works that way. What protects it is that the report below names the resolved plan,
+/// and the confirmation cannot be answered without having read it.
+fn delete(app: &mut App, args: &SliceDeleteArgs, plan_ref: Option<&str>) -> Result<()> {
+    let plan = app.plan(plan_ref)?;
+    let slice = app.store.require_slice(plan.id, &args.key)?;
+    let preview = app.store.slice_removal(&slice)?;
+
+    if !app.json {
+        print_removal(&preview);
+    }
+
+    if args.dry_run {
+        if app.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "deleted": false, "dry_run": true, "slice": preview,
+                }))?
+            );
+        } else {
+            println!(
+                "{}",
+                dim("nothing was deleted - drop --dry-run to go through with it")
+            );
+        }
+        return Ok(());
+    }
+
+    if !args.yes && !confirmed(&slice.key, app.json)? {
+        println!("{}", dim("left alone"));
+        return Ok(());
+    }
+
+    // Work this worktree holds itself is its own to throw away; anyone else's is not.
+    let worktree = app.git.as_ref().map(|g| g.worktree_str());
+    let removal = app
+        .store
+        .delete_slice(&slice, args.force, worktree.as_deref())?;
+
+    if app.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "deleted": true, "dry_run": false, "slice": removal,
+            }))?
+        );
+    } else {
+        ok(&format!(
+            "deleted {} · {} - {}",
+            removal.plan_slug, removal.key, removal.title
+        ));
+    }
+    Ok(())
+}
+
+fn print_removal(r: &SliceRemoval) {
+    println!(
+        "{} {}",
+        bold(&r.key),
+        dim(&format!("({}, {})", r.plan_slug, r.status.as_str()))
+    );
+    println!("  {}", r.title);
+
+    if let Some(branch) = &r.branch {
+        println!("  {}", dim(branch));
+    }
+    if let Some(url) = &r.pr_url {
+        println!("  {}", dim(url));
+    }
+    if let Some(held) = &r.held {
+        println!("  claimed by {} in {}", held.claimed_by, held.worktree_path);
+    }
+
+    // Said as what survives rather than what goes: the log is the record of the work,
+    // and it outlives the row that named it.
+    let kept: Vec<String> = [
+        plural(r.detached_log_entries, "note", "notes"),
+        plural(r.detached_questions, "question", "questions"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if !kept.is_empty() {
+        println!(
+            "  {}",
+            dim(&format!("{} stay on the plan", kept.join(" and ")))
+        );
+    }
+    if let Some(deps) = plural(r.dependents, "slice depends", "slices depend") {
+        println!("  {}", dim(&format!("{deps} on it")));
+    }
 }
 
 fn stale(app: &App) -> Result<()> {

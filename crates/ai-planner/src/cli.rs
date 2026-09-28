@@ -390,8 +390,28 @@ pub enum SliceCmd {
     Claim { key: String },
     /// Give a claimed slice back
     Release { key: String },
+    /// Delete a slice. The notes written against it stay on the plan
+    Delete(SliceDeleteArgs),
     /// Slices claimed in worktrees that no longer exist
     Stale,
+}
+
+#[derive(Args, Debug)]
+pub struct SliceDeleteArgs {
+    /// Which slice, e.g. PR2
+    pub key: String,
+
+    /// Report what would go and delete nothing
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Delete without the confirmation prompt
+    #[arg(long, short = 'y')]
+    pub yes: bool,
+
+    /// Delete even while another worktree holds it
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Args, Debug)]
