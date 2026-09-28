@@ -304,9 +304,14 @@ fn print_removal(r: &SliceRemoval) {
     .flatten()
     .collect();
     if !kept.is_empty() {
+        let one = r.detached_log_entries + r.detached_questions == 1;
         println!(
             "  {}",
-            dim(&format!("{} stay on the plan", kept.join(" and ")))
+            dim(&format!(
+                "{} {} on the plan",
+                kept.join(" and "),
+                if one { "stays" } else { "stay" }
+            ))
         );
     }
     if let Some(deps) = plural(r.dependents, "slice depends", "slices depend") {

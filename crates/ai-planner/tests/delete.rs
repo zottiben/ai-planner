@@ -199,7 +199,7 @@ fn deleting_a_slice_leaves_the_plan_and_the_notes_it_wrote() {
     let out = fx.ok(&["slice", "delete", "PR1", "--dry-run"]);
     assert!(out.contains("acme-1234"), "{out}");
     assert!(out.contains("Shared core"), "{out}");
-    assert!(out.contains("stay on the plan"), "{out}");
+    assert!(out.contains("stays on the plan"), "{out}");
     assert!(out.contains("nothing was deleted"), "{out}");
 
     // Nothing said yes, and a test's stdin is not a terminal to ask at.
@@ -266,4 +266,19 @@ fn a_slice_claimed_in_another_worktree_survives_until_the_delete_is_forced() {
     let report = fx.json(&["slice", "delete", "PR1", "--yes", "--force"]);
     assert_eq!(report["deleted"], true);
     assert_eq!(report["slice"]["held"]["key"], "PR1");
+}
+
+/// One note is not "1 note stay on the plan". The report is read by a person deciding
+/// whether to go through with something irreversible; it has to read like English.
+#[test]
+fn the_slice_report_agrees_its_verb_with_what_it_counted() {
+    let fx = fixture();
+    fx.ok(&["log", "Only one note.", "--slice", "PR1"]);
+
+    let one = fx.ok(&["slice", "delete", "PR1", "--dry-run"]);
+    assert!(one.contains("1 note stays on the plan"), "{one}");
+
+    fx.ok(&["log", "And a second.", "--slice", "PR1"]);
+    let many = fx.ok(&["slice", "delete", "PR1", "--dry-run"]);
+    assert!(many.contains("2 notes stay on the plan"), "{many}");
 }

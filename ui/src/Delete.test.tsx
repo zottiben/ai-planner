@@ -162,6 +162,16 @@ describe("DeletePlanDialog", () => {
 });
 
 describe("DeleteSliceDialog", () => {
+  it("agrees its verb with the one note it is talking about", async () => {
+    vi.spyOn(api, "sliceRemoval").mockResolvedValue({
+      ...sliceRemoval,
+      detached_log_entries: 1,
+      detached_questions: 0,
+    });
+    show(<DeleteSliceDialog slice={slice} onDeleted={vi.fn()} onCancel={vi.fn()} />);
+    await screen.findByText(/^1 note written against it stays on the plan/);
+  });
+
   it("says what survives, and asks for no typing", async () => {
     vi.spyOn(api, "sliceRemoval").mockResolvedValue(sliceRemoval);
     const remove = vi.spyOn(api, "deleteSlice").mockResolvedValue(sliceRemoval);

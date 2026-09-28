@@ -269,7 +269,11 @@ export function DeleteSliceDialog({
       summary={summary}
       keeps={
         detached.length > 0
-          ? `${detached.join(" and ")} written against it stay on the plan - the record of what happened outlives the slice it was about.`
+          ? `${detached.join(" and ")} written against it ${
+              (r?.detached_log_entries ?? 0) + (r?.detached_questions ?? 0) === 1
+                ? "stays"
+                : "stay"
+            } on the plan - the record of what happened outlives the slice it was about.`
           : "The plan keeps a note saying this was deleted."
       }
       held={r?.held ? [r.held] : []}
