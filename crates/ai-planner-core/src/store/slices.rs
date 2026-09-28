@@ -1,6 +1,7 @@
 use rusqlite::{params, OptionalExtension};
+use serde::{Deserialize, Serialize};
 
-use super::plans::row_to_slice;
+use super::plans::{row_to_slice, HeldSlice};
 use super::Store;
 use crate::error::{Error, Result};
 use crate::model::{LogKind, Slice, Status};
@@ -32,6 +33,31 @@ pub struct SliceUpdate {
     pub base_branch: Option<String>,
     pub pr_url: Option<String>,
     pub blocked_reason: Option<String>,
+}
+
+/// What deleting one slice would destroy, and what it would only detach. Deleting is
+/// the one write that cannot be taken back, so the caller is handed the size of it
+/// before and after rather than a bare row count.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SliceRemoval {
+    pub slice_id: i64,
+    pub plan_id: i64,
+    pub plan_slug: String,
+    pub key: String,
+    pub title: String,
+    pub status: Status,
+    pub branch: Option<String>,
+    pub pr_url: Option<String>,
+    /// Progress notes written against it. These are *not* destroyed - the log is
+    /// append-only and its `slice_id` falls to NULL - but they stop naming the slice.
+    pub detached_log_entries: i64,
+    /// Questions asked against it. They stay on the plan, likewise detached.
+    pub detached_questions: i64,
+    /// Dependency edges pointing at it. The edge goes; the slice at the other end does not.
+    pub dependents: i64,
+    pub embeddings: i64,
+    /// Who is holding it, and where. Live work, and the reason to hesitate.
+    pub held: Option<HeldSlice>,
 }
 
 const SLICE_SELECT: &str = "SELECT id, plan_id, ord, key, title, status, scope_md, demo_md,
@@ -238,6 +264,135 @@ impl Store {
             Ok(())
         })?;
         self.slice_by_id(id)
+    }
+
+    /// What deleting this slice would take with it. Counted separately from the delete
+    /// so a caller can show it first, and returned by the delete so it can report what
+    /// actually went.
+    pub fn slice_removal(&self, slice: &Slice) -> Result<SliceRemoval> {
+        let conn = self.db.conn();
+        let counts: [i64; 4] = conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM log       WHERE slice_id = ?1),
+                    (SELECT COUNT(*) FROM question  WHERE slice_id = ?1),
+                    (SELECT COUNT(*) FROM slice_dep WHERE depends_on_id = ?1),
+                    (SELECT COUNT(*) FROM embedding
+                      WHERE plan_id = ?2 AND kind = 'slice' AND ref = ?3)",
+            params![slice.id, slice.plan_id, slice.key],
+            |r| {
+                let mut out = [0i64; 4];
+                for (i, slot) in out.iter_mut().enumerate() {
+                    *slot = r.get(i)?;
+                }
+                Ok(out)
+            },
+        )?;
+        let plan_slug: String = conn.query_row(
+            "SELECT slug FROM plan WHERE id = ?1",
+            [slice.plan_id],
+            |r| r.get(0),
+        )?;
+
+        Ok(SliceRemoval {
+            slice_id: slice.id,
+            plan_id: slice.plan_id,
+            plan_slug,
+            key: slice.key.clone(),
+            title: slice.title.clone(),
+            status: slice.status,
+            branch: slice.branch.clone(),
+            pr_url: slice.pr_url.clone(),
+            detached_log_entries: counts[0],
+            detached_questions: counts[1],
+            dependents: counts[2],
+            embeddings: counts[3],
+            held: slice.claimed_by.as_ref().map(|by| HeldSlice {
+                key: slice.key.clone(),
+                claimed_by: by.clone(),
+                worktree_path: slice.worktree_path.clone().unwrap_or_default(),
+            }),
+        })
+    }
+
+    /// Delete a slice, and everything derived from it.
+    ///
+    /// Irreversible, so it refuses while somebody is holding it unless `force` says
+    /// otherwise: that is live work, and the agent deleting is rarely the one doing it.
+    /// `worktree` is the caller's own path - a claim it holds itself is its own to
+    /// throw away. The log notes written against the slice survive it, detached: they
+    /// are the record of what happened, and the slice row is only the label on it.
+    pub fn delete_slice(
+        &mut self,
+        slice: &Slice,
+        force: bool,
+        worktree: Option<&str>,
+    ) -> Result<SliceRemoval> {
+        let removal = self.slice_removal(slice)?;
+        let id = slice.id;
+        let plan_id = slice.plan_id;
+        let key = slice.key.clone();
+        let title = slice.title.clone();
+        let me = self.actor.clone();
+        let worktree = worktree.map(str::to_string);
+
+        let gone = self.db.write(|tx| {
+            // The guard is the `WHERE` clause rather than the read above, so a claim
+            // that lands between the two loses the race instead of being deleted by
+            // it (D6). A held slice with no worktree to compare against is never ours.
+            let gone = tx.execute(
+                "DELETE FROM slice
+                 WHERE id = ?1 AND (?2 OR claimed_by IS NULL OR worktree_path = ?3)",
+                params![id, force, worktree],
+            )?;
+            if gone == 0 {
+                return Ok(0);
+            }
+            // Neither index follows the slice down: `search` is FTS5 and has no foreign
+            // keys at all, and `embedding` hangs off the plan. Left alone, both would
+            // keep answering `aip find` for a slice that no longer exists.
+            tx.execute(
+                "DELETE FROM search WHERE plan_id = ?1 AND kind = 'slice' AND ref = ?2",
+                params![plan_id, key],
+            )?;
+            tx.execute(
+                "DELETE FROM embedding WHERE plan_id = ?1 AND kind = 'slice' AND ref = ?2",
+                params![plan_id, key],
+            )?;
+            tx.execute(
+                "UPDATE search_state SET rows = (SELECT COUNT(*) FROM search) WHERE id = 1",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE embedding_state SET rows = (SELECT COUNT(*) FROM embedding) WHERE id = 1",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE plan SET updated_at = ?2 WHERE id = ?1",
+                params![plan_id, now()],
+            )?;
+            // Against the plan rather than the slice, which is on its way out. A slice
+            // that vanishes with no trace is how a plan starts lying about its history.
+            super::notes::insert_log(
+                tx,
+                &me,
+                plan_id,
+                None,
+                LogKind::Status,
+                &format!("{key} deleted - {title}"),
+            )?;
+            Ok(gone)
+        })?;
+
+        if gone == 0 {
+            // Either somebody claimed it under us, or it was already gone. Re-read to
+            // say which, rather than guessing from the copy the caller handed in.
+            let fresh = self.slice_by_id(id)?;
+            return Err(Error::SliceIsHeld(
+                fresh.key,
+                fresh.claimed_by.unwrap_or_default(),
+                fresh.worktree_path.unwrap_or_default(),
+            ));
+        }
+        Ok(removal)
     }
 
     /// Take a slice for this worktree. The guard is the `WHERE` clause, not a read

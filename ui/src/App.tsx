@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "./api";
 import { Board } from "./Board";
+import { DeletePlanDialog } from "./Delete";
 import { Drawer } from "./Drawer";
 import { ago } from "./format";
 import { useResource } from "./hooks";
-import { Logo } from "./icons";
+import { Logo, More, Trash } from "./icons";
 import { useLive } from "./live";
 import { PlanSummary } from "./PlanSummary";
 import { aboutPath, navigate, parse, planPath, slicePath, usePath } from "./router";
@@ -41,6 +42,7 @@ export function App() {
   // A move the server has not confirmed yet. The board renders through it so a drag
   // lands instantly, and it is dropped - not merged - as soon as the truth arrives.
   const [pending, setPending] = useState<{ id: number; to: Status } | null>(null);
+  const [deletingPlan, setDeletingPlan] = useState(false);
 
   const refreshAll = useCallback(() => {
     board.reload();
@@ -147,6 +149,7 @@ export function App() {
                       {plan.done}/{plan.slices} slices
                     </span>
                   </div>
+                  <PlanMenu onDelete={() => setDeletingPlan(true)} />
                 </div>
               </div>
 
@@ -204,12 +207,76 @@ export function App() {
                 generation={generation}
                 onChanged={refreshAll}
                 onMove={move}
+                onDeleted={() => {
+                  navigate(planPath(plan.slug));
+                  refreshAll();
+                }}
                 onClose={() => navigate(planPath(plan.slug))}
+              />
+            )}
+
+            {deletingPlan && (
+              <DeletePlanDialog
+                plan={plan}
+                onCancel={() => setDeletingPlan(false)}
+                onDeleted={() => {
+                  setDeletingPlan(false);
+                  // Off the plan before refetching: sitting on the URL of something
+                  // that no longer exists would answer with "No such plan".
+                  navigate("/");
+                  plans.reload();
+                }}
               />
             )}
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+/** The actions that are not one click. Deleting a plan is the only one so far, and it
+ *  lives behind a menu rather than beside the progress figure for that reason. */
+function PlanMenu({ onDelete }: { onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = () => setOpen(false);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    // Anywhere else closes it, including a click on the button itself - which lands
+    // after this handler and so reads as a toggle.
+    window.addEventListener("click", dismiss);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", dismiss);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="menu">
+      <button
+        className="icon-button"
+        aria-label="Plan actions"
+        aria-expanded={open}
+        title="Plan actions"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((was) => !was);
+        }}
+      >
+        <More size={15} />
+      </button>
+      {open && (
+        <div className="menu-popover" role="menu">
+          <button className="menu-item danger" role="menuitem" onClick={onDelete}>
+            <Trash size={12} /> Delete plan…
+          </button>
+        </div>
+      )}
     </div>
   );
 }

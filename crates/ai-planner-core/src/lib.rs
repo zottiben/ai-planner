@@ -33,5 +33,5 @@ pub use search::{EmbedStats, Hit, IndexUnit, SearchOptions};
 pub use store::{
     default_actor, Board, BoardColumn, HeldSlice, NewDecision, NewLog, NewPlan, NewSlice,
     PlanFilter, PlanRemoval, PlanSummary, PlanUpdate, RepoSummary, SectionWrite, SliceDetail,
-    SliceUpdate, Store,
+    SliceRemoval, SliceUpdate, Store,
 };

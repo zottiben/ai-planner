@@ -388,6 +388,10 @@ impl Harness {
         self.send("PATCH", path, body)
     }
 
+    fn delete(&self, path: &str, body: serde_json::Value) -> Response {
+        self.send("DELETE", path, body)
+    }
+
     fn send(&self, method: &str, path: &str, body: serde_json::Value) -> Response {
         let payload = body.to_string();
         let mut stream = TcpStream::connect(self.addr).unwrap();
@@ -661,6 +665,187 @@ fn writes_need_the_token_too() {
         "ready",
         "an unauthenticated write must not land"
     );
+}
+
+// -- deleting ---------------------------------------------------------------------
+
+#[test]
+fn a_plan_goes_only_when_its_slug_is_repeated_back() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.plan_id();
+
+    // Asking what would go is free, and is what the dialog shows before anyone commits.
+    let preview = h.get(&format!("/api/plans/{id}/removal")).json();
+    assert_eq!(preview["slug"], "ship-the-widget");
+    assert_eq!(preview["slices"], 3);
+    assert!(preview["held"].as_array().unwrap().is_empty());
+
+    let unconfirmed = h.delete(&format!("/api/plans/{id}"), serde_json::json!({}));
+    assert_eq!(unconfirmed.status, 400);
+    assert_eq!(unconfirmed.json()["code"], "bad_request");
+
+    let wrong = h.delete(
+        &format!("/api/plans/{id}"),
+        serde_json::json!({"confirm": "ship-the-widgets"}),
+    );
+    assert_eq!(wrong.status, 400, "a near miss is not a confirmation");
+    assert_eq!(
+        h.get("/api/plans").json().as_array().unwrap().len(),
+        1,
+        "nothing was deleted by either refusal"
+    );
+
+    let gone = h.delete(
+        &format!("/api/plans/{id}"),
+        serde_json::json!({"confirm": "ship-the-widget"}),
+    );
+    assert_eq!(gone.status, 200);
+    assert_eq!(gone.json()["slices"], 3, "the delete reports what it took");
+    assert!(h.get("/api/plans").json().as_array().unwrap().is_empty());
+    assert_eq!(h.get(&format!("/api/plans/{id}")).status, 404);
+}
+
+#[test]
+fn a_plan_somebody_is_holding_needs_forcing() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let plan = h.plan_id();
+    let slice = h.slice_id("PR3");
+    h.post(
+        &format!("/api/slices/{slice}/claim"),
+        serde_json::json!({"worktree": "/tmp/widget-a"}),
+    );
+
+    let refused = h.delete(
+        &format!("/api/plans/{plan}"),
+        serde_json::json!({"confirm": "ship-the-widget"}),
+    );
+    assert_eq!(refused.status, 409);
+    assert_eq!(refused.json()["code"], "conflict");
+    assert!(
+        refused.json()["error"]
+            .as_str()
+            .unwrap()
+            .contains("/tmp/widget-a"),
+        "the refusal has to say whose work it is: {:?}",
+        refused.body
+    );
+
+    let forced = h.delete(
+        &format!("/api/plans/{plan}"),
+        serde_json::json!({"confirm": "ship-the-widget", "force": true}),
+    );
+    assert_eq!(forced.status, 200);
+    assert_eq!(forced.json()["held"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn deleting_a_slice_leaves_the_plan_and_the_notes_written_against_it() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let plan = h.plan_id();
+    let id = h.slice_id("PR2");
+
+    h.post(
+        &format!("/api/plans/{plan}/log"),
+        serde_json::json!({"body": "Half of it works.", "slice": "PR2"}),
+    );
+
+    let preview = h.get(&format!("/api/slices/{id}/removal")).json();
+    assert_eq!(preview["key"], "PR2");
+    assert_eq!(preview["plan_slug"], "ship-the-widget");
+    assert!(preview["detached_log_entries"].as_i64().unwrap() >= 1);
+    assert!(preview["held"].is_null());
+
+    let gone = h.delete(&format!("/api/slices/{id}"), serde_json::json!({}));
+    assert_eq!(gone.status, 200);
+    assert_eq!(gone.json()["key"], "PR2");
+    assert_eq!(h.get(&format!("/api/slices/{id}")).status, 404);
+
+    let board = h.get(&format!("/api/plans/{plan}/board")).json();
+    let mut keys: Vec<String> = board["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|c| c["slices"].as_array().unwrap().clone())
+        .map(|s| s["key"].as_str().unwrap().to_string())
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["PR1", "PR3"]);
+    assert_eq!(h.get("/api/plans").json()[0]["slices"], 2);
+
+    // The note outlives the slice - detached, not destroyed - and the delete said so.
+    let log = h.get(&format!("/api/plans/{plan}/log")).json();
+    let bodies: Vec<String> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["body"].as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        bodies.iter().any(|b| b == "Half of it works."),
+        "{bodies:?}"
+    );
+    assert!(
+        bodies.iter().any(|b| b.starts_with("PR2 deleted")),
+        "{bodies:?}"
+    );
+}
+
+#[test]
+fn a_slice_somebody_is_holding_needs_forcing_too() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let id = h.slice_id("PR3");
+    h.post(
+        &format!("/api/slices/{id}/claim"),
+        serde_json::json!({"worktree": "/tmp/widget-a"}),
+    );
+
+    let refused = h.delete(&format!("/api/slices/{id}"), serde_json::json!({}));
+    assert_eq!(refused.status, 409);
+    assert_eq!(
+        h.get(&format!("/api/slices/{id}")).status,
+        200,
+        "a refused delete leaves the slice alone"
+    );
+
+    let forced = h.delete(
+        &format!("/api/slices/{id}"),
+        serde_json::json!({"force": true}),
+    );
+    assert_eq!(forced.status, 200);
+    assert_eq!(forced.json()["held"]["worktree_path"], "/tmp/widget-a");
+}
+
+#[test]
+fn deleting_needs_the_token_like_every_other_write() {
+    let h = Harness::start(|store| {
+        seed(store);
+    });
+    let plan = h.plan_id();
+
+    let mut stream = TcpStream::connect(h.addr).unwrap();
+    let payload = serde_json::json!({"confirm": "ship-the-widget"}).to_string();
+    write!(
+        stream,
+        "DELETE /api/plans/{plan} HTTP/1.1\r\nHost: {}\r\n\
+         content-type: application/json\r\ncontent-length: {}\r\n\
+         Connection: close\r\n\r\n{payload}",
+        h.addr,
+        payload.len()
+    )
+    .unwrap();
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).unwrap();
+
+    assert!(raw.starts_with("HTTP/1.1 401"), "got: {raw}");
+    assert_eq!(h.get("/api/plans").json().as_array().unwrap().len(), 1);
 }
 
 // -- liveness -------------------------------------------------------------------

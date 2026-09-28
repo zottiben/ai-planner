@@ -12,10 +12,12 @@ import type {
   Meta,
   Plan,
   PlanBundle,
+  PlanRemoval,
   PlanSummary,
   RepoSummary,
   Slice,
   SliceDetail,
+  SliceRemoval,
   Status,
 } from "./types";
 
@@ -103,6 +105,8 @@ export const api = {
   planLog: (id: number, limit?: number) =>
     request<LogEntry[]>(`/plans/${id}/log${limit ? `?limit=${limit}` : ""}`),
   slice: (id: number) => request<SliceDetail>(`/slices/${id}`),
+  planRemoval: (id: number) => request<PlanRemoval>(`/plans/${id}/removal`),
+  sliceRemoval: (id: number) => request<SliceRemoval>(`/slices/${id}/removal`),
 
   setSliceStatus: (id: number, status: Status, reason?: string) =>
     post<Slice>(`/slices/${id}/status`, { status, reason }),
@@ -115,6 +119,20 @@ export const api = {
   setPlanStatus: (id: number, status: Status) => post<Plan>(`/plans/${id}/status`, { status }),
   answerQuestion: (id: number, answer: string) =>
     post<{ ok: boolean }>(`/questions/${id}/answer`, { answer }),
+
+  // The two irreversible calls. `confirm` is the plan's own slug, repeated back - the
+  // same thing `aip delete` makes a terminal type out - so a stray click on the wrong
+  // plan cannot get this far.
+  deletePlan: (id: number, confirm: string, force = false) =>
+    request<PlanRemoval>(`/plans/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirm, force }),
+    }),
+  deleteSlice: (id: number, force = false) =>
+    request<SliceRemoval>(`/slices/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ force }),
+    }),
 };
 
 function post<T>(path: string, body: unknown): Promise<T> {

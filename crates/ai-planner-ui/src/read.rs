@@ -10,7 +10,8 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
 use ai_planner_core::{
-    Board, BoardColumn, PlanBundle, PlanFilter, PlanSummary, RepoSummary, SliceDetail, Status,
+    Board, BoardColumn, PlanBundle, PlanFilter, PlanRemoval, PlanSummary, RepoSummary, SliceDetail,
+    SliceRemoval, Status,
 };
 
 use crate::error::{Error, Result};
@@ -25,7 +26,9 @@ pub fn routes() -> Router<AppState> {
         .route("/plans/{id}", get(plan))
         .route("/plans/{id}/board", get(board))
         .route("/plans/{id}/log", get(plan_log))
+        .route("/plans/{id}/removal", get(plan_removal))
         .route("/slices/{id}", get(slice))
+        .route("/slices/{id}/removal", get(slice_removal))
 }
 
 /// What the client needs before it renders anything: which database it is looking at,
@@ -147,6 +150,29 @@ async fn plan_log(
 
 async fn slice(State(state): State<AppState>, Path(id): Path<i64>) -> Result<Json<SliceDetail>> {
     Ok(Json(state.read(|store| store.slice_detail(id, Some(200)))?))
+}
+
+/// What a delete would take. A read, so asking is free and the dialog can show the
+/// size of the thing before anyone commits to it - the board's version of the dry run
+/// the CLI and the MCP tool both insist on.
+async fn plan_removal(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<PlanRemoval>> {
+    Ok(Json(state.read(|store| {
+        let plan = store.get_plan(id)?;
+        store.plan_removal(&plan)
+    })?))
+}
+
+async fn slice_removal(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<SliceRemoval>> {
+    Ok(Json(state.read(|store| {
+        let slice = store.slice_by_id(id)?;
+        store.slice_removal(&slice)
+    })?))
 }
 
 /// The log is append-only and grows forever, so an unbounded limit is a foot-gun a

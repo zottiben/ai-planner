@@ -5,6 +5,7 @@
 //! a write, and this API can move slices and steal claims. So every request carries a
 //! secret that only the process that printed the URL knows.
 
+use axum::body::to_bytes;
 use axum::extract::{Request, State};
 use axum::http::header::AUTHORIZATION;
 use axum::middleware::Next;
@@ -28,6 +29,11 @@ pub fn mint_token() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// How much of a rejected request's body to read before answering. Enough for anything
+/// this API accepts, and a bound so an unauthenticated caller cannot make the board
+/// buffer whatever it likes.
+const DRAIN_LIMIT: usize = 64 * 1024;
+
 pub async fn require_token(
     State(state): State<AppState>,
     request: Request,
@@ -36,6 +42,10 @@ pub async fn require_token(
     if presented(&request).is_some_and(|t| constant_time_eq(&t, state.token())) {
         return Ok(next.run(request).await);
     }
+    // Read the body it sent before turning it away. Closing a socket with bytes still
+    // unread is a reset, not a clean end, so a rejected POST would reach the client as
+    // "connection reset" instead of the 401 that explains what to do about it.
+    let _ = to_bytes(request.into_body(), DRAIN_LIMIT).await;
     Err(Error::Unauthorized)
 }
 

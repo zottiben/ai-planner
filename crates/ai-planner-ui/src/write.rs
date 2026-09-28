@@ -6,22 +6,24 @@
 //! appended inside the same transaction as the change it describes. There is no SQL in
 //! this file, and there should never be.
 
+use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::routing::{patch, post};
+use axum::routing::{delete, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use ai_planner_core::{LogKind, NewLog, Slice, SliceUpdate, Status};
+use ai_planner_core::{LogKind, NewLog, PlanRemoval, Slice, SliceRemoval, SliceUpdate, Status};
 
 use crate::error::{Error, Result};
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/slices/{id}", patch(edit_slice))
+        .route("/slices/{id}", patch(edit_slice).delete(delete_slice))
         .route("/slices/{id}/status", post(set_status))
         .route("/slices/{id}/claim", post(claim))
         .route("/slices/{id}/release", post(release))
+        .route("/plans/{id}", delete(delete_plan))
         .route("/plans/{id}/log", post(add_log))
         .route("/plans/{id}/status", post(set_plan_status))
         .route("/questions/{id}/answer", post(answer))
@@ -95,7 +97,15 @@ async fn claim(
         .map(Json)
 }
 
-async fn release(State(state): State<AppState>, Path(id): Path<i64>) -> Result<Json<Slice>> {
+/// Releasing takes no arguments, but it still swallows whatever was posted. A handler
+/// that answers without reading the request body leaves bytes in the socket, and
+/// closing on unread bytes is a reset rather than a clean end - which the client sees
+/// as "connection reset by peer" for a call the server in fact completed.
+async fn release(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    _body: Bytes,
+) -> Result<Json<Slice>> {
     state
         .write(|store| {
             let slice = store.slice_by_id(id)?;
@@ -189,6 +199,60 @@ async fn set_plan_status(
         .write(|store| {
             let plan = store.get_plan(id)?;
             store.set_plan_status(&plan, status)
+        })
+        .map(Json)
+}
+
+/// Every other write on this board may be undone by making the opposite one. These
+/// cannot, so they are the only ones that ask for something beyond the click: the
+/// caller repeats the plan's slug back, which is the same thing `aip delete` makes an
+/// interactive terminal type and the MCP tool makes an agent send. A fuzzy match or a
+/// misplaced click dies here rather than in the database.
+#[derive(Debug, Default, Deserialize)]
+pub struct DeleteBody {
+    #[serde(default)]
+    confirm: Option<String>,
+    /// Delete even while somebody is holding a slice. Their work goes with it.
+    #[serde(default)]
+    force: bool,
+}
+
+async fn delete_plan(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<DeleteBody>,
+) -> Result<Json<PlanRemoval>> {
+    state
+        .write(|store| {
+            let plan = store.get_plan(id)?;
+            match body.confirm.as_deref() {
+                Some(confirm) if confirm.trim() == plan.slug => {}
+                _ => {
+                    return Err(ai_planner_core::Error::invalid(format!(
+                        "repeat the plan's slug back in `confirm` to delete it - {}",
+                        plan.slug
+                    )))
+                }
+            }
+            // No worktree of its own: the board is a window, not a checkout, so every
+            // claim on the plan belongs to somebody else and blocks until forced.
+            store.delete_plan(&plan, body.force, None)
+        })
+        .map(Json)
+}
+
+/// A slice is smaller than a plan and is not asked to be typed back - the drawer names
+/// exactly one, so there is no fuzzy reference here to protect against. The claim
+/// guard still applies: live work is not deleted out from under whoever holds it.
+async fn delete_slice(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<DeleteBody>,
+) -> Result<Json<SliceRemoval>> {
+    state
+        .write(|store| {
+            let slice = store.slice_by_id(id)?;
+            store.delete_slice(&slice, body.force, None)
         })
         .map(Json)
 }

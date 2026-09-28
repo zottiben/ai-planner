@@ -47,6 +47,9 @@ pub enum Error {
     #[error("{0} has {1} slice(s) claimed in another worktree ({2}) - release them first, or force the delete if you mean to take the work with it")]
     PlanIsHeld(String, usize, String),
 
+    #[error("slice {0} is claimed by {1} in {2} - release it first, or force the delete if you mean to throw that work away")]
+    SliceIsHeld(String, String, String),
+
     #[error("{0}")]
     Invalid(String),
 }

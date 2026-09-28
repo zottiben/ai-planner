@@ -84,9 +84,9 @@ impl From<CoreError> for Error {
             | CoreError::AmbiguousPlan(_, _, _)
             | CoreError::DuplicatePlan(_)
             | CoreError::DuplicateSlice(_, _) => Error::BadRequest(err.to_string()),
-            CoreError::Conflict(_, _, _) | CoreError::PlanIsHeld(_, _, _) => {
-                Error::Conflict(err.to_string())
-            }
+            CoreError::Conflict(_, _, _)
+            | CoreError::PlanIsHeld(_, _, _)
+            | CoreError::SliceIsHeld(_, _, _) => Error::Conflict(err.to_string()),
             CoreError::AlreadyClaimed(ref slice, ref holder, ref worktree) => Error::Claimed {
                 message: err.to_string(),
                 slice: slice.clone(),

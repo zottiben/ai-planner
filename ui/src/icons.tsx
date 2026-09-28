@@ -1,6 +1,6 @@
 // Inline SVG, sized in em so icons scale with the text they sit beside.
 //
-// An icon font or an icon package would both weigh more than these six paths, and the
+// An icon font or an icon package would both weigh more than these few paths, and the
 // bundle ships inside the binary (D2).
 
 interface IconProps {
@@ -82,6 +82,24 @@ export function Expand(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M6.5 3.5 11 8l-4.5 4.5" />
+    </Svg>
+  );
+}
+
+export function More(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="3.25" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12.75" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    </Svg>
+  );
+}
+
+export function Trash(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.75 4.5h10.5M6.5 4.5V3a.75.75 0 0 1 .75-.75h1.5A.75.75 0 0 1 9.5 3v1.5M4 4.5l.6 8.1a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9L12 4.5" />
     </Svg>
   );
 }

@@ -190,3 +190,47 @@ export interface SliceDetail {
   repo: string;
   log: LogEntry[];
 }
+
+export interface HeldSlice {
+  key: string;
+  claimed_by: string;
+  worktree_path: string;
+}
+
+/** What deleting a plan would destroy, as `store/plans.rs` counts it. */
+export interface PlanRemoval {
+  plan_id: number;
+  slug: string;
+  title: string;
+  repo: string;
+  status: Status;
+  sections: number;
+  slices: number;
+  decisions: number;
+  questions: number;
+  gotchas: number;
+  log_entries: number;
+  handoffs: number;
+  sources: number;
+  imports: number;
+  embeddings: number;
+  held: HeldSlice[];
+  imported_from: string[];
+}
+
+/** What deleting a slice would destroy, and what it would only detach. */
+export interface SliceRemoval {
+  slice_id: number;
+  plan_id: number;
+  plan_slug: string;
+  key: string;
+  title: string;
+  status: Status;
+  branch: string | null;
+  pr_url: string | null;
+  detached_log_entries: number;
+  detached_questions: number;
+  dependents: number;
+  embeddings: number;
+  held: HeldSlice | null;
+}

@@ -744,3 +744,196 @@ fn a_plan_another_worktree_is_holding_is_not_deleted_by_accident() {
     assert_eq!(removal.held[0].worktree_path, "/wt/other");
     assert!(matches!(store.get_plan(plan.id), Err(Error::NoSuchPlan(_))));
 }
+
+/// Deleting a slice has to take the rows that answer for it - both indexes - while
+/// leaving the notes written against it on the plan. The progress is the record of
+/// what happened; the slice row is only the label somebody put on it.
+#[test]
+fn deleting_a_slice_clears_what_answers_for_it_and_keeps_the_notes() {
+    let fx = Fixture::new();
+    let mut store = fx.store();
+    let plan = seed_plan(&mut store, fx.repo_id, "ACME-1234 - Picker");
+
+    let doomed = store
+        .add_slice(NewSlice {
+            plan_id: plan.id,
+            key: "PR1".into(),
+            title: "Shared core".into(),
+            scope_md: Some("The gotenberg renderer.".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    let keeper = store
+        .add_slice(NewSlice {
+            plan_id: plan.id,
+            key: "PR2".into(),
+            title: "The variant".into(),
+            scope_md: Some("Built on the core.".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    store
+        .append_log(NewLog {
+            plan_id: plan.id,
+            slice_id: Some(doomed.id),
+            body: "Core landed.".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    store
+        .add_question(plan.id, Some(doomed.id), "past or both?")
+        .unwrap();
+    store.reindex().unwrap();
+
+    let before_log: i64 = store
+        .db()
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM log WHERE plan_id = ?1",
+            [plan.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    let removal = store
+        .delete_slice(&doomed, false, Some("/wt/mine"))
+        .unwrap();
+    assert_eq!(removal.key, "PR1");
+    assert_eq!(removal.plan_slug, "acme-1234");
+    assert!(removal.detached_log_entries >= 1, "{removal:?}");
+    assert_eq!(removal.detached_questions, 1);
+    assert!(removal.held.is_none());
+
+    assert!(matches!(
+        store.require_slice(plan.id, "PR1"),
+        Err(Error::NoSuchSlice(_, _))
+    ));
+    assert_eq!(store.slices(plan.id).unwrap().len(), 1);
+    assert_eq!(store.slice_by_id(keeper.id).unwrap().key, "PR2");
+
+    // The notes survive - one more than before, because the delete recorded itself -
+    // and the ones that named the slice are simply no longer attributed to it.
+    let after_log = store.log(plan.id, None).unwrap();
+    assert_eq!(after_log.len() as i64, before_log + 1);
+    assert!(after_log.iter().any(|e| e.body.contains("PR1 deleted")));
+    assert!(
+        after_log
+            .iter()
+            .any(|e| e.body == "Core landed." && e.slice_key.is_none()),
+        "the note has to outlive the slice it described: {after_log:?}"
+    );
+
+    // Nothing in either index still answers for it, and the counter matches the table.
+    let opts = ai_planner_core::SearchOptions {
+        limit: 20,
+        ..Default::default()
+    };
+    assert!(
+        store.search("gotenberg", &opts).unwrap().is_empty(),
+        "a deleted slice is still in the index"
+    );
+    assert!(!store.search("variant", &opts).unwrap().is_empty());
+    let indexed: i64 = store
+        .db()
+        .conn()
+        .query_row("SELECT COUNT(*) FROM search", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(store.search_rows().unwrap(), indexed);
+}
+
+/// A claimed slice is somebody's live work, so it is not deleted out from under them.
+#[test]
+fn a_slice_another_worktree_is_holding_is_not_deleted_by_accident() {
+    let fx = Fixture::new();
+    let mut store = fx.store();
+    let plan = seed_plan(&mut store, fx.repo_id, "ACME-1234 - Picker");
+    let slice = store
+        .add_slice(NewSlice {
+            plan_id: plan.id,
+            key: "PR1".into(),
+            title: "Shared core".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let held = store.claim_slice(&slice, "/wt/other", None).unwrap();
+
+    let refused = store.delete_slice(&held, false, Some("/wt/mine"));
+    assert!(
+        matches!(&refused, Err(Error::SliceIsHeld(key, _, worktree))
+            if key == "PR1" && worktree == "/wt/other"),
+        "{refused:?}"
+    );
+    assert!(store.require_slice(plan.id, "PR1").is_ok(), "nothing went");
+
+    // A board has no worktree of its own, so every claim is somebody else's.
+    assert!(matches!(
+        store.delete_slice(&held, false, None),
+        Err(Error::SliceIsHeld(_, _, _))
+    ));
+
+    let removal = store.delete_slice(&held, true, None).unwrap();
+    assert_eq!(removal.held.unwrap().worktree_path, "/wt/other");
+    assert!(matches!(
+        store.require_slice(plan.id, "PR1"),
+        Err(Error::NoSuchSlice(_, _))
+    ));
+}
+
+/// The guard is the `WHERE` clause, not the read before it: a claim that lands between
+/// the two has to win, or the board deletes work that started a millisecond ago.
+#[test]
+fn a_claim_that_lands_mid_delete_still_beats_it() {
+    let fx = Fixture::new();
+    let mut store = fx.store();
+    let plan = seed_plan(&mut store, fx.repo_id, "ACME-1234 - Picker");
+    let stale = store
+        .add_slice(NewSlice {
+            plan_id: plan.id,
+            key: "PR1".into(),
+            title: "Shared core".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    // A second store is a second connection, which is what an agent in another
+    // worktree actually is.
+    let mut other = fx.store();
+    other.set_actor("someone-else");
+    let fresh = other.require_slice(plan.id, "PR1").unwrap();
+    other.claim_slice(&fresh, "/wt/other", None).unwrap();
+
+    // `stale` still says unclaimed, so only the SQL guard can refuse this.
+    let refused = store.delete_slice(&stale, false, Some("/wt/mine"));
+    assert!(
+        matches!(&refused, Err(Error::SliceIsHeld(_, by, _)) if by == "someone-else"),
+        "{refused:?}"
+    );
+    assert!(store.require_slice(plan.id, "PR1").is_ok());
+}
+
+/// Narrowing the trigger so a slice can be deleted must not weaken what it is for: a
+/// progress note is still never rewritten, re-dated or re-attributed.
+#[test]
+fn a_note_is_still_impossible_to_rewrite_after_it_is_written() {
+    let fx = Fixture::new();
+    let mut store = fx.store();
+    let plan = seed_plan(&mut store, fx.repo_id, "ACME-1234 - Picker");
+    let id = store
+        .append_log(NewLog {
+            plan_id: plan.id,
+            body: "Core landed.".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    for column in ["body", "at", "actor", "kind", "plan_id"] {
+        let refused = store.db().conn().execute(
+            &format!("UPDATE log SET {column} = '1' WHERE id = ?1"),
+            [id],
+        );
+        assert!(refused.is_err(), "{column} was editable");
+    }
+
+    let kept = store.log(plan.id, None).unwrap();
+    assert_eq!(kept[0].body, "Core landed.");
+}

@@ -8,9 +8,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "./api";
+import { DeleteSliceDialog } from "./Delete";
 import { ago, exact, prLabel, statusColour } from "./format";
 import { useResource } from "./hooks";
-import { Branch, Person, PullRequest } from "./icons";
+import { Branch, Person, PullRequest, Trash } from "./icons";
 import { Markdown } from "./markdown";
 import { useToast } from "./Toast";
 import type { Slice, Status, StatusMeta } from "./types";
@@ -23,6 +24,8 @@ interface Props {
   generation: number;
   onChanged: () => void;
   onMove: (slice: Slice, to: Status) => void;
+  /** The slice is gone: close, and reload the board without it. */
+  onDeleted: () => void;
   onClose: () => void;
 }
 
@@ -33,20 +36,25 @@ export function Drawer({
   generation,
   onChanged,
   onMove,
+  onDeleted,
   onClose,
 }: Props) {
   const detail = useResource(() => api.slice(slice.id), [slice.id, generation]);
   const panel = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
+    // Inert while the delete dialog is up, or one Escape would answer its question
+    // and dismiss the ticket behind it in the same keystroke.
+    if (deleting) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, deleting]);
 
   // Focus moves into the panel when it opens, so the keyboard follows the eye and
   // Escape reaches the handler above without a click first.
@@ -79,7 +87,7 @@ export function Drawer({
 
   return (
     <>
-      <div className="scrim" onClick={onClose} aria-hidden="true" />
+      <div className="scrim" onClick={() => !deleting && onClose()} aria-hidden="true" />
       <aside
         className="drawer"
         ref={panel}
@@ -141,6 +149,15 @@ export function Drawer({
               }}
             >
               {current.pr_url ? "Change PR link" : "Link a PR"}
+            </button>
+            {/* Last, and pushed clear of the rest: the others are all reversible. */}
+            <button
+              className="button danger trailing"
+              disabled={busy}
+              title={`Delete ${current.key}`}
+              onClick={() => setDeleting(true)}
+            >
+              <Trash size={11} /> Delete
             </button>
           </div>
         </header>
@@ -236,6 +253,17 @@ export function Drawer({
           </Field>
         </div>
       </aside>
+
+      {deleting && (
+        <DeleteSliceDialog
+          slice={current}
+          onCancel={() => setDeleting(false)}
+          onDeleted={() => {
+            setDeleting(false);
+            onDeleted();
+          }}
+        />
+      )}
     </>
   );
 }

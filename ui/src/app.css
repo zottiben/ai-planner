@@ -1230,6 +1230,25 @@ a:hover {
   filter: brightness(1.08);
 }
 
+/* Outlined rather than filled. A red block beside the primary action reads as the
+   thing to press; this reads as the thing to be sure about. */
+.button.danger {
+  color: var(--blocked);
+  border-color: color-mix(in srgb, var(--blocked) 45%, transparent);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--blocked) 10%, var(--bg-raised));
+  border-color: var(--blocked);
+}
+
+.button.trailing {
+  margin-left: auto;
+}
+
 .drawer-actions {
   display: flex;
   gap: 6px;
@@ -1310,6 +1329,171 @@ a:hover {
   margin-top: 5px;
 }
 
+/* ---- menus ------------------------------------------------------------------- */
+
+.menu {
+  position: relative;
+  display: flex;
+}
+
+.menu .icon-button {
+  margin-left: 0;
+}
+
+.menu-popover {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+  z-index: 12;
+  animation: rise 0.12s ease;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.menu-item.danger {
+  color: var(--blocked);
+}
+
+.menu-item.danger:hover {
+  background: color-mix(in srgb, var(--blocked) 10%, var(--bg-raised));
+}
+
+/* ---- the delete dialog ------------------------------------------------------- */
+
+/* Over the drawer, not under it: a ticket can ask to delete itself, and the question
+   has to sit on top of the thing it is about. */
+.scrim.is-dialog {
+  z-index: 30;
+}
+
+.dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+  z-index: 31;
+  animation: rise 0.14s ease;
+}
+
+.dialog:focus,
+.dialog:focus-visible {
+  outline: none;
+}
+
+.dialog h2 {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.dialog-subject {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.dialog-error {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--blocked);
+}
+
+.dialog-list {
+  margin: 11px 0 0;
+  padding: 9px 11px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dialog-list li + li {
+  margin-top: 2px;
+}
+
+.dialog .faint {
+  margin: 9px 0 0;
+  line-height: 1.6;
+}
+
+.dialog code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  color: var(--text-dim);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.5px 4px;
+}
+
+.dialog-force {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.dialog-type {
+  display: block;
+  margin-top: 13px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dialog-type b {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.dialog-type .search {
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 16px;
+}
+
 /* ---- toasts ------------------------------------------------------------------ */
 
 .toaster {
@@ -1321,7 +1505,9 @@ a:hover {
   flex-direction: column;
   gap: 7px;
   align-items: center;
-  z-index: 20;
+  /* Above everything, dialogs included: a refusal leaves the dialog open, and the
+     reason it was refused is the one thing that has to be readable then. */
+  z-index: 40;
   pointer-events: none;
 }
 
