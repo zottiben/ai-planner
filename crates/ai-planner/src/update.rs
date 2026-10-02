@@ -19,8 +19,8 @@ pub const SKILL: &str = include_str!("../../../skill/SKILL.md");
 pub const HOOK_SCRIPT: &str = include_str!("../../../install/hooks/ai-planner-session.sh");
 pub const SKILL_NAME: &str = "ai-planner";
 const RELEASE_MARKER: &str = ".ai-planner/install-method";
-const RELEASE_API: &str = "https://api.github.com/repos/zottiben/ai-planner/releases/latest";
-const INSTALL_SCRIPT: &str = "https://zottiben.github.io/ai-planner/install.sh";
+#[cfg(test)]
+use ai_planner_update::{release_order, release_version};
 
 /// The events the hook script serves. `PreCompact` and `SessionEnd` are absent on
 /// purpose: neither can inject context, so a hook there could only block.
@@ -102,75 +102,46 @@ impl Install {
 /// The release installer writes this marker after replacing the binary. It has to
 /// outrank cargo's metadata: a user can install from source once and replace that
 /// binary with a release later, but cargo keeps the stale source record forever.
-pub fn installed_from_release(home: &Path) -> Result<bool> {
+pub fn installed_from_release(home: &Path, executable: &Path) -> Result<bool> {
     let marker = home.join(RELEASE_MARKER);
     match std::fs::read_to_string(&marker) {
-        Ok(value) => Ok(value.trim() == "release"),
+        Ok(value) if value.trim() == "release" => {
+            // Keep install-method readable by old binaries. Its optional sibling
+            // scopes new installs without changing the legacy marker's format.
+            match std::fs::read_to_string(home.join(".ai-planner/install-path")) {
+                Ok(target) => {
+                    let path = Path::new(target.trim());
+                    Ok(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()) == executable)
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(true),
+                Err(err) => Err(err).context("reading the release installation path"),
+            }
+        }
+        Ok(_) => Ok(false),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(err) => Err(err).with_context(|| format!("reading {}", marker.display())),
     }
 }
 
-/// Ask GitHub which published release the installer would select.
-pub fn latest_release_version() -> Result<String> {
-    let output = std::process::Command::new("curl")
-        .args(["-fsSL", "-H", "User-Agent: aip", RELEASE_API])
-        .output()
-        .context("running curl")?;
-    if !output.status.success() {
-        anyhow::bail!("GitHub returned {}", output.status);
+/// Cargo metadata describes only Cargo's executable. A different copy on PATH
+/// cannot use its commit or features to decide that it is already current.
+pub fn source_for_executable(
+    home: &Path,
+    cargo_home: &Path,
+    executable: &Path,
+) -> Result<Option<Install>> {
+    if installed_from_release(home, executable)? {
+        return Ok(None);
     }
-    release_version(&output.stdout)
-}
-
-pub fn release_order(latest: &str, current: &str) -> Result<std::cmp::Ordering> {
-    let latest = semver::Version::parse(latest).context("the latest release is not SemVer")?;
-    let current = semver::Version::parse(current).context("this binary's version is not SemVer")?;
-    Ok(latest.cmp(&current))
-}
-
-fn release_version(raw: &[u8]) -> Result<String> {
-    let value: serde_json::Value =
-        serde_json::from_slice(raw).context("reading GitHub's response")?;
-    value
-        .get("tag_name")
-        .and_then(serde_json::Value::as_str)
-        .and_then(|tag| tag.strip_prefix('v'))
-        .filter(|version| !version.is_empty())
-        .map(str::to_string)
-        .context("the latest release has no v-prefixed tag")
-}
-
-/// Download and execute the public installer. It refreshes the binary, desktop app,
-/// skill, rules, hooks and MCP registration as one operation. A file instead of
-/// `curl | sh` means curl and the shell each have an independently checked exit code.
-pub fn run_release_installer() -> Result<()> {
-    let path = std::env::temp_dir().join(format!(
-        "ai-planner-install-{}-{}.sh",
-        std::process::id(),
-        ai_planner_core::util::now()
-            .replace([':', '-'], "")
-            .replace('Z', "")
-    ));
-
-    let download = std::process::Command::new("curl")
-        .args(["-fsSL", INSTALL_SCRIPT, "-o"])
-        .arg(&path)
-        .status()
-        .context("downloading the ai-planner installer")?;
-    if !download.success() {
-        anyhow::bail!("downloading the ai-planner installer failed");
+    let cargo_bin = cargo_home
+        .join("bin")
+        .join(if cfg!(windows) { "aip.exe" } else { "aip" });
+    if let (Ok(actual), Ok(recorded)) = (executable.canonicalize(), cargo_bin.canonicalize()) {
+        if actual == recorded {
+            return installed(cargo_home, "ai-planner");
+        }
     }
-
-    let installed = std::process::Command::new("sh").arg(&path).status();
-    let _ = std::fs::remove_file(&path);
-    match installed {
-        Ok(status) if status.success() => Ok(()),
-        Ok(_) => anyhow::bail!(
-            "the ai-planner installer failed - the previous binary may still be in place"
-        ),
-        Err(err) => Err(err).context("running the ai-planner installer"),
-    }
+    Ok(None)
 }
 
 pub fn cargo_home() -> PathBuf {
@@ -466,15 +437,19 @@ mod tests {
     #[test]
     fn a_release_marker_outranks_cargo_provenance() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(!installed_from_release(dir.path()).unwrap());
+        assert!(!installed_from_release(dir.path(), Path::new("/bin/aip")).unwrap());
 
         let marker = dir.path().join(RELEASE_MARKER);
         std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
         std::fs::write(&marker, "release\n").unwrap();
-        assert!(installed_from_release(dir.path()).unwrap());
+        assert!(installed_from_release(dir.path(), Path::new("/bin/aip")).unwrap());
+
+        std::fs::write(dir.path().join(".ai-planner/install-path"), "/bin/aip\n").unwrap();
+        assert!(installed_from_release(dir.path(), Path::new("/bin/aip")).unwrap());
+        assert!(!installed_from_release(dir.path(), Path::new("/other/aip")).unwrap());
 
         std::fs::write(marker, "source\n").unwrap();
-        assert!(!installed_from_release(dir.path()).unwrap());
+        assert!(!installed_from_release(dir.path(), Path::new("/bin/aip")).unwrap());
     }
 
     #[test]

@@ -159,9 +159,12 @@ with the plan; `--lexical` restricts it to words for one query.
 
 ## If `aip` looks out of date
 
-`aip doctor` reports a stale skill or a missing rules block. `aip update` rebuilds the
-binary from wherever it was installed and refreshes both. Tell the user rather than
-running it yourself - it reinstalls a binary on their machine.
+`aip doctor` reports a stale skill or a missing rules block. `aip update --check`
+reports the executing CLI's path and version and checks an installed macOS app
+separately. `aip update` updates those targets, preserves source-build features and
+refreshes the skill/rules; `--no-desktop` leaves the app alone. The desktop's native
+**Check for Updates…** menu updates its app bundle on macOS. Tell the user rather
+than running an update yourself - it replaces installed binaries on their machine.
 
 ## Machine-readable
 

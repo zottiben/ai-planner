@@ -16,10 +16,12 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 ai-planner-core = { path = "../ai-planner-core" }
 ai-planner-ui = { path = "../ai-planner-ui" }
+ai-planner-update = { path = "../ai-planner-update" }
 anyhow.workspace = true
 tauri = { version = "2", features = [] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tauri-plugin-window-state = "2"
+tauri-plugin-dialog = "2"
 
 [features]
 # Tauri's own convention: the CLI sets this so a production bundle refuses to load a

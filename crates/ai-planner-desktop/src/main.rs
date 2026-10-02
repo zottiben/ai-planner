@@ -15,6 +15,8 @@
 // stdout is how you find out why it did not start.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod update;
+
 use std::sync::mpsc;
 
 use anyhow::{Context, Result};
@@ -73,7 +75,9 @@ fn run() -> Result<()> {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            update::menu(app)?;
             // Built here rather than in tauri.conf.json because the URL is not known
             // until the OS has assigned a port and the token has been minted.
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))

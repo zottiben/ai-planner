@@ -119,6 +119,7 @@ install_release() {
   # an old clone and silently downgrade the user.
   mkdir -p "$HOME/.ai-planner"
   printf 'release\n' > "$HOME/.ai-planner/install-method"
+  printf '%s\n' "${BIN_DIR}/aip" > "$HOME/.ai-planner/install-path"
 
   # The desktop board, when the archive carries one. `aip ui` works regardless; this
   # is for people who would rather have it in the Dock.
@@ -148,11 +149,15 @@ install_from_source() {
     cargo install --git "$REPO_URL" ai-planner --locked $features
   fi
   ok "aip installed"
-  INSTALLED_AIP=$(command -v aip 2>/dev/null || printf '%s' "$HOME/.cargo/bin/aip")
+  INSTALLED_AIP="${CARGO_HOME:-$HOME/.cargo}/bin/aip"
+  active=$(command -v aip 2>/dev/null || true)
+  if [ -n "$active" ] && [ "$active" != "$INSTALLED_AIP" ]; then
+    warn "$active shadows the source install at $INSTALLED_AIP - put its directory first on PATH"
+  fi
 
   # A source install supersedes release provenance. Leaving the marker behind would
   # make `aip update` replace this feature-selected build with a stock release.
-  rm -f "$HOME/.ai-planner/install-method"
+  rm -f "$HOME/.ai-planner/install-method" "$HOME/.ai-planner/install-path"
 }
 
 if [ "$from_source" = yes ]; then

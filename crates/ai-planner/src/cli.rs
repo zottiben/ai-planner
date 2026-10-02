@@ -701,9 +701,17 @@ pub struct UpdateArgs {
     #[arg(long)]
     pub check: bool,
 
-    /// Rebuild even when already on the latest commit
+    /// Reinstall current versions too (never downgrade)
     #[arg(long)]
     pub force: bool,
+
+    /// Update a macOS app outside the usual Applications folders
+    #[arg(long, value_name = "APP", conflicts_with = "no_desktop")]
+    pub app: Option<PathBuf>,
+
+    /// Update only the CLI, leaving the desktop app untouched
+    #[arg(long)]
+    pub no_desktop: bool,
 }
 
 #[derive(Args, Debug)]

@@ -4,6 +4,7 @@ members = [
     "crates/ai-planner-core",
     "crates/ai-planner-ui",
     "crates/ai-planner",
+    "crates/ai-planner-update",
     "crates/ai-planner-desktop",
 ]
 
@@ -15,6 +16,7 @@ default-members = [
     "crates/ai-planner-core",
     "crates/ai-planner-ui",
     "crates/ai-planner",
+    "crates/ai-planner-update",
 ]
 
 [workspace.package]

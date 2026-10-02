@@ -1,201 +1,199 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 use crate::cli::UpdateArgs;
 use crate::out::{bold, dim, ok};
-use crate::update::{self, Source};
-
-const PACKAGE: &str = "ai-planner";
+use crate::update::{self, Install, Source};
+use ai_planner_update as release;
 
 pub fn update(args: &UpdateArgs) -> Result<()> {
-    if update::installed_from_release(&update::home_dir())? {
-        return update_release(args);
+    let executable = std::env::current_exe()?.canonicalize()?;
+    let home = update::home_dir();
+    let source = update::source_for_executable(&home, &update::cargo_home(), &executable)?;
+    if source.is_none() {
+        anyhow::ensure!(
+            !cfg!(feature = "model-embeddings"),
+            "this feature-enabled binary has no matching Cargo provenance; refusing to replace it with a stock release. Reinstall from its source with model-embeddings enabled"
+        );
+        anyhow::ensure!(
+            !executable
+                .components()
+                .any(|part| part.as_os_str() == "target"),
+            "this is a build-tree binary ({}); rebuild it there or install a release first",
+            executable.display()
+        );
+    }
+    println!(
+        "{} at {}",
+        bold(&format!("aip {}", env!("CARGO_PKG_VERSION"))),
+        executable.display()
+    );
+    let cli_available = match &source {
+        Some(install) => source_available(install)?,
+        None => {
+            println!(
+                "{}",
+                dim("  prebuilt GitHub release (Cargo records for other copies are ignored)")
+            );
+            false
+        }
+    };
+    let app = if args.no_desktop {
+        None
+    } else {
+        args.app.clone().or_else(|| release::default_app(&home))
+    };
+    let app = app
+        .map(|path| path.canonicalize())
+        .transpose()
+        .context("locating the desktop app")?;
+    let app_version = app.as_deref().map(release::app_version).transpose()?;
+    if let (Some(app), Some(version)) = (&app, &app_version) {
+        println!("desktop {version} at {}", app.display());
     }
 
-    let home = update::cargo_home();
-    let Some(install) = update::installed(&home, PACKAGE)? else {
-        anyhow::bail!(
-            "cargo has no record of installing {PACKAGE}, so there is nothing to update.\n  \
-             This binary was not installed with `cargo install` - if you are running it out of \
-             ./target, build it there instead."
-        );
+    // The app is an independent component: even an unchanged source CLI must not
+    // short-circuit its release check, and a newer source CLI must never be downgraded.
+    let latest = if source.is_none() || app.is_some() {
+        let version = release::latest_release_version()?;
+        println!("{}", dim(&format!("  latest release is v{version}")));
+        Some(version)
+    } else {
+        None
     };
-
+    let update_cli = if source.is_some() {
+        cli_available || args.force
+    } else {
+        release::needs_update(
+            latest.as_deref().expect("release checked"),
+            env!("CARGO_PKG_VERSION"),
+            args.force,
+        )?
+    };
+    let update_app = match (&latest, &app_version) {
+        (Some(latest), Some(current)) => release::needs_update(latest, current, args.force)?,
+        _ => false,
+    };
     println!(
-        "{} {}",
-        bold(&format!("aip {}", env!("CARGO_PKG_VERSION"))),
-        dim(&install.describe())
+        "CLI: {}",
+        if update_cli {
+            "update available"
+        } else {
+            "current or newer"
+        }
     );
+    if app.is_some() {
+        println!(
+            "Desktop: {}",
+            if update_app {
+                "update available"
+            } else {
+                "current or newer"
+            }
+        );
+    }
+    if args.check {
+        return Ok(());
+    }
+    if !update_cli && !update_app {
+        println!(
+            "\nNothing to do. {}",
+            dim("Pass --force to reinstall current versions.")
+        );
+        return Ok(());
+    }
 
-    // Say what an update would even mean before doing one. For a git install that is
-    // a commit comparison; for a local clone it is whatever the clone contains now,
-    // which only the user can speak to.
-    let available = match &install.source {
+    // Fail closed: starting the new app can migrate the same live database.
+    if let Some(path) = backup_database()? {
+        ok(&format!(
+            "backed up the database to {}",
+            super::setup::shown(&path)
+        ));
+    }
+    if update_cli {
+        if let Some(install) = &source {
+            let cargo_args = install.cargo_args();
+            println!("{} cargo {}", dim("running"), cargo_args.join(" "));
+            let status = std::process::Command::new(cargo())
+                .args(&cargo_args)
+                .status()
+                .context("running cargo install")?;
+            anyhow::ensure!(
+                status.success(),
+                "cargo install failed; the desktop was not updated"
+            );
+            ok(&format!("binary reinstalled at {}", executable.display()));
+        }
+    }
+    let release_cli = (update_cli && source.is_none()).then_some(executable.as_path());
+    let release_app = if update_app { app.as_deref() } else { None };
+    if release_cli.is_some() || release_app.is_some() {
+        println!("Downloading and verifying the release…");
+        let result = release::install_release(
+            latest.as_deref().expect("release checked"),
+            release_cli,
+            release_app,
+        )
+        .context("release update failed; if the source CLI was rebuilt above it remains updated")?;
+        print!("{result}");
+    }
+    if update_cli {
+        refresh_setup(&executable)?;
+    }
+    println!(
+        "\nDone. {}",
+        dim("Restart running agents, browser servers and the desktop app to use the new binaries.")
+    );
+    Ok(())
+}
+
+fn source_available(install: &Install) -> Result<bool> {
+    println!("{}", dim(&install.describe()));
+    match &install.source {
         Source::Git { url, sha } => match (update::remote_head(url), sha) {
-            (Some(head), Some(built)) if head == *built => {
+            (Some(head), Some(built))
+                if head == *built && install.version == env!("CARGO_PKG_VERSION") =>
+            {
                 println!("{}", dim("  already on the remote's latest commit"));
-                false
+                Ok(false)
             }
             (Some(head), _) => {
                 println!(
                     "{}",
                     dim(&format!("  remote is at {}", &head[..head.len().min(10)]))
                 );
-                true
+                Ok(true)
             }
-            (None, _) => {
-                println!(
-                    "{}",
-                    dim("  could not reach the remote - will rebuild anyway")
-                );
-                true
-            }
+            (None, _) => anyhow::bail!("could not check the source remote; nothing was updated"),
         },
         Source::Path(path) => {
-            if !path.exists() {
-                anyhow::bail!(
-                    "the clone it was installed from is gone: {}\n  Re-install with: cargo \
-                     install --git {} ai-planner --locked",
-                    path.display(),
-                    env!("CARGO_PKG_REPOSITORY")
-                );
-            }
+            anyhow::ensure!(
+                path.exists(),
+                "the source clone is gone: {}",
+                path.display()
+            );
             println!(
                 "{}",
-                dim("  installed from a local clone - `git pull` there first to get new commits")
+                dim("  local clone: git pull there first; updating rebuilds its current contents")
             );
-            true
+            Ok(true)
         }
-        Source::Registry => true,
-    };
-
-    if args.check {
-        return Ok(());
+        Source::Registry => Ok(true),
     }
-    if !available && !args.force {
-        println!(
-            "\nNothing to do. {}",
-            dim("Pass --force to rebuild anyway.")
-        );
-        return Ok(());
-    }
-
-    // A newer binary may add migrations, and those run silently on first open. Take a
-    // copy first so a bad upgrade is recoverable.
-    match backup_database() {
-        Ok(Some(path)) => ok(&format!(
-            "backed up the database to {}",
-            super::setup::shown(&path)
-        )),
-        Ok(None) => println!("{}", dim("no database yet - nothing to back up")),
-        Err(err) => println!(
-            "{}",
-            dim(&format!("could not back up the database: {err:#}"))
-        ),
-    }
-
-    let cargo_args = install.cargo_args();
-    println!();
-    println!("{} cargo {}", dim("running"), cargo_args.join(" "));
-    let status = std::process::Command::new(cargo())
-        .args(&cargo_args)
-        .status()
-        .context("running cargo install")?;
-    if !status.success() {
-        anyhow::bail!("cargo install failed - the previous binary is untouched");
-    }
-    ok("binary reinstalled");
-
-    // The skill, the rules and the hooks live outside the binary, and every one of
-    // them changes between versions. Refreshing them is the half of an update that is
-    // easy to forget and produces the strangest symptoms when skipped.
-    println!();
-    println!("{}", bold("refreshing the installed setup"));
-    let installed_aip = update::cargo_home().join("bin").join("aip");
-    let refreshed = std::process::Command::new(&installed_aip)
-        .args(["setup", "--force"])
-        .status();
-    match refreshed {
-        Ok(status) if status.success() => {}
-        // Run by the *new* binary, so it picks up the new skill and rules. If that
-        // fails, fall back to this binary's own copies rather than leaving them stale.
-        _ => {
-            println!(
-                "{}",
-                dim("  the new binary could not run setup - using this one")
-            );
-            super::setup::setup(&crate::cli::SetupArgs {
-                project: false,
-                force: true,
-            })?;
-        }
-    }
-
-    println!();
-    println!(
-        "Done. {}",
-        dim("Restart your agent, then run `aip doctor`.")
-    );
-    Ok(())
 }
 
-fn update_release(args: &UpdateArgs) -> Result<()> {
-    println!(
-        "{} {}",
-        bold(&format!("aip {}", env!("CARGO_PKG_VERSION"))),
-        dim("prebuilt GitHub release")
+fn refresh_setup(executable: &Path) -> Result<()> {
+    println!("{}", bold("refreshing the installed setup"));
+    let status = std::process::Command::new(executable)
+        .args(["setup", "--force"])
+        .status()
+        .context("running setup from the updated binary")?;
+    anyhow::ensure!(
+        status.success(),
+        "binary updated, but setup failed; run {} setup --force",
+        executable.display()
     );
-
-    let latest = match update::latest_release_version() {
-        Ok(version) => {
-            println!("{}", dim(&format!("  latest release is v{version}")));
-            version
-        }
-        Err(err) => {
-            println!("{}", dim(&format!("  could not reach GitHub ({err})")));
-            if args.check {
-                return Ok(());
-            }
-            anyhow::bail!("could not check for a release - the existing binary is untouched");
-        }
-    };
-
-    if args.check {
-        return Ok(());
-    }
-    match update::release_order(&latest, env!("CARGO_PKG_VERSION"))? {
-        std::cmp::Ordering::Less => {
-            println!(
-                "\nNothing to do. {}",
-                dim("The published release is older than this binary; refusing to downgrade.")
-            );
-            return Ok(());
-        }
-        std::cmp::Ordering::Equal if !args.force => {
-            println!(
-                "\nNothing to do. {}",
-                dim("Pass --force to reinstall anyway.")
-            );
-            return Ok(());
-        }
-        _ => {}
-    }
-
-    match backup_database() {
-        Ok(Some(path)) => ok(&format!(
-            "backed up the database to {}",
-            super::setup::shown(&path)
-        )),
-        Ok(None) => println!("{}", dim("no database yet - nothing to back up")),
-        Err(err) => println!(
-            "{}",
-            dim(&format!("could not back up the database: {err:#}"))
-        ),
-    }
-
-    println!();
-    update::run_release_installer()?;
     Ok(())
 }
 
@@ -203,8 +201,7 @@ fn cargo() -> String {
     std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string())
 }
 
-/// `VACUUM INTO` a timestamped copy, which is consistent even while other agents are
-/// mid-write.
+/// `VACUUM INTO` is consistent even while another agent is writing.
 fn backup_database() -> Result<Option<PathBuf>> {
     let path = ai_planner_core::default_db_path();
     if !path.exists() {

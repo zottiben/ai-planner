@@ -16,11 +16,11 @@ model-embeddings = ["ai-planner-core/model-embeddings"]
 [dependencies]
 ai-planner-core = { path = "../ai-planner-core" }
 ai-planner-ui = { path = "../ai-planner-ui" }
+ai-planner-update = { path = "../ai-planner-update" }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-semver.workspace = true
 tokio.workspace = true
 rmcp = { version = "2.2.0", features = ["server", "transport-io"] }
 

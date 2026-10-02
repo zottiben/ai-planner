@@ -190,16 +190,35 @@ an out-of-date skill, and which markdown files are imported and safe to delete.
 
 ```sh
 aip update --check     # is there anything newer?
-aip update             # rebuild, then refresh the skill, rules and hooks
+aip update             # update this CLI and the installed macOS app
+aip update --no-desktop # leave the desktop app alone
 ```
 
-`aip update` reads back **how** you installed it - the source and the feature list -
-from cargo's own records, so a rebuild cannot silently drop `--features
-model-embeddings` and leave semantic search broken with no error. It also backs the
-database up first, since a newer binary may add migrations, and then re-runs `aip
-setup` so the skill, the rules block and the hooks match the new binary. That second
-half is the part that is easy to forget by hand and produces the strangest symptoms
-when it is skipped.
+`aip update` prints the actual executable path and updates **that copy**, not a
+shadowed installation elsewhere on PATH. Cargo's source and feature records are used
+only for its own binary, preserving `model-embeddings` and other selected features.
+Release copies download a pinned release and require a matching SHA-256 checksum.
+The database is backed up first, and the updated CLI runs `setup --force` to refresh
+the skill, rules and hooks. Failed checks or installation steps return an error.
+
+On macOS the desktop app is checked independently: an already-current CLI still
+updates an older app. It looks in `~/Applications` then `/Applications`; use
+`aip update --app /path/to/ai-planner.app` for another location. `--check` changes
+nothing, `--force` allows reinstalling but never downgrading, and `--no-desktop` skips
+the app. Restart existing agents, browser servers and the app after updating.
+
+In the desktop app, choose **ai-planner → Check for Updates…** on macOS (the **Help**
+menu on Linux/Windows). macOS offers a confirmed in-place update and then **Restart
+Now** or **Later**. It updates only the running app bundle; CLI source builds and
+their features are left alone. Linux/Windows offer the release download page rather
+than claiming an in-place install. Update controls are native, not exposed through
+the browser board's HTTP API.
+
+Updates need write access to the installation directory; the desktop never prompts
+for `sudo`. Downloads are verified and both replacements are staged first, with
+rollback on a failed replacement. If another update holds a target lock, retry when
+it finishes; after a killed updater, remove the named `.update-lock` directory only
+after confirming no updater is still running.
 
 Installed from a local clone? `git pull` there first - `aip update` rebuilds whatever
 the clone currently contains, and will tell you so.
